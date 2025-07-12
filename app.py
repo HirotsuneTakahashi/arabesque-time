@@ -57,12 +57,26 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 # データベースの初期化
 db.init_app(app)
 
-# Slack Boltアプリケーションの設定（最適化）
+# Slack Bolt の自動OAuth設定を無効にするために環境変数を一時的に削除
+slack_client_id = os.environ.get('SLACK_CLIENT_ID')
+slack_client_secret = os.environ.get('SLACK_CLIENT_SECRET')
+if 'SLACK_CLIENT_ID' in os.environ:
+    del os.environ['SLACK_CLIENT_ID']
+if 'SLACK_CLIENT_SECRET' in os.environ:
+    del os.environ['SLACK_CLIENT_SECRET']
+
+# Slack Boltアプリケーションの設定（シンプルなトークンベース）
 slack_app = App(
     token=os.environ.get('SLACK_BOT_TOKEN'),
     signing_secret=os.environ.get('SLACK_SIGNING_SECRET'),
     process_before_response=True
 )
+
+# 環境変数を復元
+if slack_client_id:
+    os.environ['SLACK_CLIENT_ID'] = slack_client_id
+if slack_client_secret:
+    os.environ['SLACK_CLIENT_SECRET'] = slack_client_secret
 
 # Slack Web クライアント
 slack_client = WebClient(token=os.environ.get('SLACK_BOT_TOKEN'))
@@ -204,7 +218,6 @@ def get_or_create_user(slack_user_id):
                 )
                 db.session.add(user)
                 db.session.commit()
-                logger.info(f"Created default user: {slack_user_id}")
             except Exception as e:
                 logger.error(f"Database error creating user: {e}")
                 return None
@@ -244,7 +257,7 @@ def handle_slack_events():
 
 @app.route('/login')
 def login():
-    """Slack認証ページ（スコープ修正）"""
+    """Slack認証ページ（適切なスコープ設定）"""
     if 'user_id' in session:
         return redirect(url_for('index'))
     
@@ -260,7 +273,7 @@ def login():
 
 @app.route('/callback')
 def callback():
-    """Slack認証後のコールバック（エラーハンドリング改善）"""
+    """Slack認証後のコールバック"""
     code = request.args.get('code')
     error = request.args.get('error')
     
@@ -284,7 +297,7 @@ def callback():
         }, timeout=10)
         
         auth_data = response.json()
-        logger.info(f"OAuth response: {auth_data}")  # デバッグ用ログ
+        logger.info(f"OAuth response: {auth_data}")
         
         if not auth_data.get('ok'):
             error_msg = auth_data.get('error', 'Unknown error')
@@ -301,7 +314,7 @@ def callback():
         )
         
         user_info = user_info_response.json()
-        logger.info(f"User info response: {user_info}")  # デバッグ用ログ
+        logger.info(f"User info response: {user_info}")
         
         if not user_info.get('ok'):
             error_msg = user_info.get('error', 'Unknown error')
@@ -318,7 +331,7 @@ def callback():
             user = User(
                 slack_user_id=slack_user_id,
                 display_name=user_info['user']['name'],
-                email=''  # identity.basicスコープではメールアドレスは取得できない
+                email=''
             )
             db.session.add(user)
             db.session.commit()
