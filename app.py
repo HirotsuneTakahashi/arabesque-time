@@ -257,23 +257,23 @@ def handle_slack_events():
 
 @app.route('/login')
 def login():
-    """Slack認証ページ（適切なスコープ設定）"""
+    """Slack認証ページ（Modern Sign in with Slack - OpenID Connect）"""
     if 'user_id' in session:
         return redirect(url_for('index'))
     
-    # Slack OAuthのURL（適切なスコープに修正）
+    # Modern Sign in with Slack (OpenID Connect) のURL
     client_id = os.environ.get('SLACK_CLIENT_ID')
-    # OAuth用のUser Token Scopesは identity.basic のみ
-    scope = 'identity.basic'
+    # OpenID Connect スコープ: openid（必須）, profile（ユーザー名・チーム情報）, email（メールアドレス）
+    scope = 'openid profile email'
     redirect_uri = url_for('callback', _external=True)
     
-    slack_oauth_url = f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}"
+    slack_oauth_url = f"https://slack.com/openid/connect/authorize?client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}&response_type=code"
     
     return render_template('login.html', oauth_url=slack_oauth_url)
 
 @app.route('/callback')
 def callback():
-    """Slack認証後のコールバック"""
+    """Slack認証後のコールバック（Modern Sign in with Slack - OpenID Connect）"""
     code = request.args.get('code')
     error = request.args.get('error')
     
@@ -283,46 +283,60 @@ def callback():
         return redirect(url_for('login'))
     
     if not code:
-        logger.error("No authorization code received")
-        flash('認証に失敗しました。認証コードが取得できませんでした。', 'error')
+        logger.error("Authorization code not received")
+        flash('認証コードが受信されませんでした。', 'error')
         return redirect(url_for('login'))
     
     try:
-        # OAuth認証のトークン取得
-        response = requests.post('https://slack.com/api/oauth.v2.access', {
+        # Modern Sign in with Slack (OpenID Connect) のトークン交換エンドポイント
+        token_url = "https://slack.com/api/openid.connect.token"
+        
+        token_data = {
             'client_id': os.environ.get('SLACK_CLIENT_ID'),
             'client_secret': os.environ.get('SLACK_CLIENT_SECRET'),
             'code': code,
+            'grant_type': 'authorization_code',
             'redirect_uri': url_for('callback', _external=True)
-        }, timeout=10)
+        }
         
-        auth_data = response.json()
-        logger.info(f"OAuth response: {auth_data}")
+        response = requests.post(token_url, data=token_data)
+        token_response = response.json()
         
-        if not auth_data.get('ok'):
-            error_msg = auth_data.get('error', 'Unknown error')
-            logger.error(f"OAuth token exchange failed: {error_msg}")
-            flash(f'認証に失敗しました: {error_msg}', 'error')
+        if not token_response.get('ok', False):
+            logger.error(f"Token exchange failed: {token_response}")
+            flash('認証に失敗しました。', 'error')
             return redirect(url_for('login'))
         
-        # ユーザー情報取得
-        user_token = auth_data['authed_user']['access_token']
-        user_info_response = requests.get(
-            'https://slack.com/api/users.identity',
-            headers={'Authorization': f'Bearer {user_token}'},
-            timeout=10
-        )
+        access_token = token_response.get('access_token')
+        id_token = token_response.get('id_token')  # JWT形式のIDトークン
         
-        user_info = user_info_response.json()
-        logger.info(f"User info response: {user_info}")
-        
-        if not user_info.get('ok'):
-            error_msg = user_info.get('error', 'Unknown error')
-            logger.error(f"User info fetch failed: {error_msg}")
-            flash(f'ユーザー情報の取得に失敗しました: {error_msg}', 'error')
+        if not access_token:
+            logger.error("Access token not received")
+            flash('アクセストークンが受信されませんでした。', 'error')
             return redirect(url_for('login'))
         
-        slack_user_id = user_info['user']['id']
+        # OpenID Connect userInfo エンドポイントでユーザー情報を取得
+        user_info_url = "https://slack.com/api/openid.connect.userInfo"
+        headers = {'Authorization': f'Bearer {access_token}'}
+        
+        user_response = requests.get(user_info_url, headers=headers)
+        user_data = user_response.json()
+        
+        if not user_data.get('ok', False):
+            logger.error(f"User info request failed: {user_data}")
+            flash('ユーザー情報の取得に失敗しました。', 'error')
+            return redirect(url_for('login'))
+        
+        # OpenID Connect レスポンスから必要な情報を取得
+        slack_user_id = user_data.get('sub')  # OpenID Connect標準のsubject ID
+        user_name = user_data.get('name', 'Unknown User')
+        user_email = user_data.get('email', '')
+        team_id = user_data.get('https://slack.com/team_id')
+        
+        if not slack_user_id:
+            logger.error("Slack user ID not found in response")
+            flash('ユーザーIDの取得に失敗しました。', 'error')
+            return redirect(url_for('login'))
         
         # ユーザーを取得または作成
         user = User.query.filter_by(slack_user_id=slack_user_id).first()
@@ -330,27 +344,35 @@ def callback():
         if not user:
             user = User(
                 slack_user_id=slack_user_id,
-                display_name=user_info['user']['name'],
-                email=''
+                display_name=user_name,
+                email=user_email
             )
             db.session.add(user)
             db.session.commit()
-            logger.info(f"Created new user via OAuth: {slack_user_id}")
+            logger.info(f"Created new user: {slack_user_id}")
+        else:
+            # 既存ユーザーの情報を更新
+            user.display_name = user_name
+            user.email = user_email
+            db.session.commit()
+            logger.info(f"Updated user info: {slack_user_id}")
         
         # セッションに保存
         session['user_id'] = user.id
         session['slack_user_id'] = slack_user_id
+        session['user_name'] = user_name
+        session['team_id'] = team_id
         
-        flash('ログインしました。', 'success')
+        flash(f'{user_name} さん、ようこそ！', 'success')
         return redirect(url_for('index'))
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error during OAuth: {e}")
-        flash('ネットワークエラーが発生しました。しばらく待ってから再試行してください。', 'error')
+    except requests.RequestException as e:
+        logger.error(f"Request error during OAuth: {e}")
+        flash('認証処理中にネットワークエラーが発生しました。', 'error')
         return redirect(url_for('login'))
     except Exception as e:
-        logger.error(f"OAuth callback error: {e}")
-        flash('認証処理中にエラーが発生しました。', 'error')
+        logger.error(f"Unexpected error during OAuth: {e}")
+        flash('認証処理中に予期しないエラーが発生しました。', 'error')
         return redirect(url_for('login'))
 
 @app.route('/logout')
