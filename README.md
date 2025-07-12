@@ -53,7 +53,6 @@ SECRET_KEY=your-secret-key-for-session
 2. **Bot Token Scopes を確認**:
    - `chat:write` (メッセージ送信)
    - `users:read` (ユーザー情報読み取り)
-   - `im:history` (DMメッセージ履歴)
 
 3. **アプリをワークスペースに再インストール**:
    - 設定変更後は必ずアプリを再インストールしてください
@@ -67,12 +66,13 @@ SECRET_KEY=your-secret-key-for-session
 1. **OAuth & Permissions の設定**:
    - Redirect URLs に `https://your-domain.com/callback` を追加
    - User Token Scopes に以下を追加:
-     - `identity.basic` (基本情報)
-     - `identity.email` (メールアドレス)
+     - `identity.basic` (基本情報のみ)
 
 2. **Client ID と Client Secret の確認**:
    - 環境変数の値が正しいか確認
    - 特殊文字がエスケープされていないか確認
+
+**注意**: `identity.email`スコープは無効です。`identity.basic`のみを使用してください。
 
 ### 3. 405 エラーの場合
 

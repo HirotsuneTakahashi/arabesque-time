@@ -194,7 +194,7 @@ def login():
     
     # Slack OAuthのURL
     client_id = os.environ.get('SLACK_CLIENT_ID')
-    scope = 'identity.basic,identity.email'
+    scope = 'identity.basic'  # identity.emailスコープを削除
     redirect_uri = url_for('callback', _external=True)
     
     slack_oauth_url = f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}"
@@ -220,6 +220,7 @@ def callback():
         })
         
         auth_data = response.json()
+        print(f"OAuth response: {auth_data}")  # デバッグ用ログ
         
         if auth_data.get('ok'):
             # ユーザー情報取得
@@ -230,6 +231,7 @@ def callback():
             )
             
             user_info = user_info_response.json()
+            print(f"User info response: {user_info}")  # デバッグ用ログ
             
             if user_info.get('ok'):
                 slack_user_id = user_info['user']['id']
@@ -241,7 +243,7 @@ def callback():
                     user = User(
                         slack_user_id=slack_user_id,
                         display_name=user_info['user']['name'],
-                        email=user_info['user'].get('email', '')
+                        email=''  # identity.basicスコープではメールアドレスは取得できない
                     )
                     db.session.add(user)
                     db.session.commit()
@@ -253,6 +255,8 @@ def callback():
                 flash('ログインしました。', 'success')
                 return redirect(url_for('index'))
         
+        # エラーの詳細をログに出力
+        print(f"OAuth error: {auth_data}")
         flash('認証に失敗しました。', 'error')
         return redirect(url_for('login'))
         
