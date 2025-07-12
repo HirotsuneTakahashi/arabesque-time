@@ -10,20 +10,54 @@ from models import db, User, Attendance
 from dotenv import load_dotenv
 import threading
 import requests
+import logging
+
+# ログ設定の改善
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 環境変数を読み込み
 load_dotenv()
 
+# 必須環境変数の検証
+required_env_vars = [
+    'SLACK_BOT_TOKEN',
+    'SLACK_SIGNING_SECRET',
+    'SLACK_CLIENT_ID',
+    'SLACK_CLIENT_SECRET'
+]
+
+missing_vars = []
+for var in required_env_vars:
+    if not os.environ.get(var):
+        missing_vars.append(var)
+
+if missing_vars:
+    logger.error(f"Missing required environment variables: {missing_vars}")
+    raise ValueError(f"Missing required environment variables: {missing_vars}")
+
 # Flaskアプリケーションの設定
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-for-development')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+
+# データベース設定の改善
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+# PostgreSQL URL の修正（ssl require対応）
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_timeout': 20,
+    'pool_recycle': -1,
+    'pool_pre_ping': True
+}
 
 # データベースの初期化
 db.init_app(app)
 
-# Slack Boltアプリケーションの設定
+# Slack Boltアプリケーションの設定（最適化）
 slack_app = App(
     token=os.environ.get('SLACK_BOT_TOKEN'),
     signing_secret=os.environ.get('SLACK_SIGNING_SECRET'),
@@ -36,18 +70,20 @@ slack_client = WebClient(token=os.environ.get('SLACK_BOT_TOKEN'))
 # SlackRequestHandlerの設定
 handler = SlackRequestHandler(slack_app)
 
-# データベースの初期化は起動時に実行
-
-# Slack Bot イベントリスナー
+# Slack Bot イベントリスナー（最適化）
 @slack_app.message(re.compile(r'(出勤|おはよう)', re.IGNORECASE))
 def handle_checkin(message, say):
     """出勤打刻を処理"""
     try:
         user_id = message['user']
-        print(f"Received checkin message from user: {user_id}")
+        logger.info(f"Received checkin message from user: {user_id}")
         
         # ユーザー情報を取得
         user = get_or_create_user(user_id)
+        if not user:
+            logger.error(f"Failed to get or create user: {user_id}")
+            say("申し訳ありませんが、ユーザー情報の取得に失敗しました。")
+            return
         
         # 出勤記録を作成
         attendance = Attendance(
@@ -61,10 +97,10 @@ def handle_checkin(message, say):
         
         # 返信メッセージを送信
         say(f"出勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Checkin recorded for user: {user_id}")
+        logger.info(f"Checkin recorded for user: {user_id}")
         
     except Exception as e:
-        print(f"Error handling checkin: {e}")
+        logger.error(f"Error handling checkin: {e}")
         say("申し訳ありませんが、出勤打刻の処理中にエラーが発生しました。")
 
 @slack_app.message(re.compile(r'(退勤|おつかれ)', re.IGNORECASE))
@@ -72,10 +108,14 @@ def handle_checkout(message, say):
     """退勤打刻を処理"""
     try:
         user_id = message['user']
-        print(f"Received checkout message from user: {user_id}")
+        logger.info(f"Received checkout message from user: {user_id}")
         
         # ユーザー情報を取得
         user = get_or_create_user(user_id)
+        if not user:
+            logger.error(f"Failed to get or create user: {user_id}")
+            say("申し訳ありませんが、ユーザー情報の取得に失敗しました。")
+            return
         
         # 退勤記録を作成
         attendance = Attendance(
@@ -89,10 +129,10 @@ def handle_checkout(message, say):
         
         # 返信メッセージを送信
         say(f"退勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Checkout recorded for user: {user_id}")
+        logger.info(f"Checkout recorded for user: {user_id}")
         
     except Exception as e:
-        print(f"Error handling checkout: {e}")
+        logger.error(f"Error handling checkout: {e}")
         say("申し訳ありませんが、退勤打刻の処理中にエラーが発生しました。")
 
 @slack_app.message(re.compile(r'(ヘルプ|help)', re.IGNORECASE))
@@ -118,52 +158,62 @@ def handle_help(message, say):
     """
     say(help_text)
 
-# 全てのメッセージをキャッチしてログ出力（デバッグ用）
-@slack_app.message(".*")
-def handle_all_messages(message, say):
-    """全てのメッセージをログ出力（デバッグ用）"""
-    user_id = message.get('user')
-    text = message.get('text', '')
-    print(f"Received message from {user_id}: {text}")
-    
-    # 既に処理されたメッセージは無視
-    if re.search(r'(出勤|おはよう|退勤|おつかれ|ヘルプ|help)', text, re.IGNORECASE):
-        return
-    
-    # 未対応のメッセージに対してヘルプを送信
-    say("こんにちは！出退勤管理ボットです。`ヘルプ`と送信すると使い方を確認できます。")
+# デバッグ用メッセージハンドラーを削除（本番環境では不要）
+# 代わりにapp_mentionsイベントのみ処理
+@slack_app.event("app_mention")
+def handle_app_mention(event, say):
+    """ボットへのメンションを処理"""
+    text = event.get('text', '').lower()
+    if any(keyword in text for keyword in ['ヘルプ', 'help']):
+        handle_help(event, say)
+    else:
+        say("こんにちは！出退勤管理ボットです。`ヘルプ`と送信すると使い方を確認できます。")
 
 def get_or_create_user(slack_user_id):
-    """Slackユーザー情報を取得または作成"""
-    user = User.query.filter_by(slack_user_id=slack_user_id).first()
-    
-    if not user:
-        try:
-            # Slack APIからユーザー情報を取得
-            response = slack_client.users_info(user=slack_user_id)
-            user_info = response['user']
-            
-            user = User(
-                slack_user_id=slack_user_id,
-                display_name=user_info.get('real_name', user_info.get('name', 'Unknown')),
-                email=user_info.get('profile', {}).get('email', '')
-            )
-            
-            db.session.add(user)
-            db.session.commit()
-            
-        except SlackApiError as e:
-            print(f"Error fetching user info: {e}")
-            # エラーの場合はデフォルトユーザーを作成
-            user = User(
-                slack_user_id=slack_user_id,
-                display_name=f'User_{slack_user_id}',
-                email=''
-            )
-            db.session.add(user)
-            db.session.commit()
-    
-    return user
+    """Slackユーザー情報を取得または作成（エラーハンドリング改善）"""
+    try:
+        user = User.query.filter_by(slack_user_id=slack_user_id).first()
+        
+        if not user:
+            try:
+                # Slack APIからユーザー情報を取得
+                response = slack_client.users_info(user=slack_user_id)
+                if not response.get('ok'):
+                    logger.error(f"Slack API error: {response.get('error')}")
+                    return None
+                    
+                user_info = response['user']
+                
+                user = User(
+                    slack_user_id=slack_user_id,
+                    display_name=user_info.get('real_name', user_info.get('name', 'Unknown')),
+                    email=user_info.get('profile', {}).get('email', '')
+                )
+                
+                db.session.add(user)
+                db.session.commit()
+                logger.info(f"Created new user: {slack_user_id}")
+                
+            except SlackApiError as e:
+                logger.error(f"Error fetching user info: {e}")
+                # エラーの場合はデフォルトユーザーを作成
+                user = User(
+                    slack_user_id=slack_user_id,
+                    display_name=f'User_{slack_user_id[-4:]}',  # IDの末尾4桁のみ表示
+                    email=''
+                )
+                db.session.add(user)
+                db.session.commit()
+                logger.info(f"Created default user: {slack_user_id}")
+            except Exception as e:
+                logger.error(f"Database error creating user: {e}")
+                return None
+        
+        return user
+        
+    except Exception as e:
+        logger.error(f"Error in get_or_create_user: {e}")
+        return None
 
 # Webアプリケーションのルート
 @app.route('/')
@@ -172,14 +222,20 @@ def index():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user = User.query.get(session['user_id'])
-    if not user:
+    try:
+        user = User.query.get(session['user_id'])
+        if not user:
+            session.clear()
+            return redirect(url_for('login'))
+        
+        # ユーザーの出退勤記録を取得（最新順）
+        attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp.desc()).all()
+        
+        return render_template('index.html', user=user, attendances=attendances)
+    except Exception as e:
+        logger.error(f"Error in index route: {e}")
+        flash('データの取得中にエラーが発生しました。', 'error')
         return redirect(url_for('login'))
-    
-    # ユーザーの出退勤記録を取得（最新順）
-    attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp.desc()).all()
-    
-    return render_template('index.html', user=user, attendances=attendances)
 
 @app.route('/', methods=['POST'])
 def handle_slack_events():
@@ -188,13 +244,14 @@ def handle_slack_events():
 
 @app.route('/login')
 def login():
-    """Slack認証ページ"""
+    """Slack認証ページ（スコープ修正）"""
     if 'user_id' in session:
         return redirect(url_for('index'))
     
-    # Slack OAuthのURL
+    # Slack OAuthのURL（適切なスコープに修正）
     client_id = os.environ.get('SLACK_CLIENT_ID')
-    scope = 'identity.basic'  # identity.emailスコープを削除
+    # OAuth用のUser Token Scopesは identity.basic のみ
+    scope = 'identity.basic'
     redirect_uri = url_for('callback', _external=True)
     
     slack_oauth_url = f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}"
@@ -203,11 +260,18 @@ def login():
 
 @app.route('/callback')
 def callback():
-    """Slack認証後のコールバック"""
+    """Slack認証後のコールバック（エラーハンドリング改善）"""
     code = request.args.get('code')
+    error = request.args.get('error')
+    
+    if error:
+        logger.error(f"OAuth error: {error}")
+        flash(f'認証エラー: {error}', 'error')
+        return redirect(url_for('login'))
     
     if not code:
-        flash('認証に失敗しました。', 'error')
+        logger.error("No authorization code received")
+        flash('認証に失敗しました。認証コードが取得できませんでした。', 'error')
         return redirect(url_for('login'))
     
     try:
@@ -217,51 +281,62 @@ def callback():
             'client_secret': os.environ.get('SLACK_CLIENT_SECRET'),
             'code': code,
             'redirect_uri': url_for('callback', _external=True)
-        })
+        }, timeout=10)
         
         auth_data = response.json()
-        print(f"OAuth response: {auth_data}")  # デバッグ用ログ
+        logger.info(f"OAuth response: {auth_data}")  # デバッグ用ログ
         
-        if auth_data.get('ok'):
-            # ユーザー情報取得
-            user_token = auth_data['authed_user']['access_token']
-            user_info_response = requests.get(
-                'https://slack.com/api/users.identity',
-                headers={'Authorization': f'Bearer {user_token}'}
+        if not auth_data.get('ok'):
+            error_msg = auth_data.get('error', 'Unknown error')
+            logger.error(f"OAuth token exchange failed: {error_msg}")
+            flash(f'認証に失敗しました: {error_msg}', 'error')
+            return redirect(url_for('login'))
+        
+        # ユーザー情報取得
+        user_token = auth_data['authed_user']['access_token']
+        user_info_response = requests.get(
+            'https://slack.com/api/users.identity',
+            headers={'Authorization': f'Bearer {user_token}'},
+            timeout=10
+        )
+        
+        user_info = user_info_response.json()
+        logger.info(f"User info response: {user_info}")  # デバッグ用ログ
+        
+        if not user_info.get('ok'):
+            error_msg = user_info.get('error', 'Unknown error')
+            logger.error(f"User info fetch failed: {error_msg}")
+            flash(f'ユーザー情報の取得に失敗しました: {error_msg}', 'error')
+            return redirect(url_for('login'))
+        
+        slack_user_id = user_info['user']['id']
+        
+        # ユーザーを取得または作成
+        user = User.query.filter_by(slack_user_id=slack_user_id).first()
+        
+        if not user:
+            user = User(
+                slack_user_id=slack_user_id,
+                display_name=user_info['user']['name'],
+                email=''  # identity.basicスコープではメールアドレスは取得できない
             )
-            
-            user_info = user_info_response.json()
-            print(f"User info response: {user_info}")  # デバッグ用ログ
-            
-            if user_info.get('ok'):
-                slack_user_id = user_info['user']['id']
-                
-                # ユーザーを取得または作成
-                user = User.query.filter_by(slack_user_id=slack_user_id).first()
-                
-                if not user:
-                    user = User(
-                        slack_user_id=slack_user_id,
-                        display_name=user_info['user']['name'],
-                        email=''  # identity.basicスコープではメールアドレスは取得できない
-                    )
-                    db.session.add(user)
-                    db.session.commit()
-                
-                # セッションに保存
-                session['user_id'] = user.id
-                session['slack_user_id'] = slack_user_id
-                
-                flash('ログインしました。', 'success')
-                return redirect(url_for('index'))
+            db.session.add(user)
+            db.session.commit()
+            logger.info(f"Created new user via OAuth: {slack_user_id}")
         
-        # エラーの詳細をログに出力
-        print(f"OAuth error: {auth_data}")
-        flash('認証に失敗しました。', 'error')
+        # セッションに保存
+        session['user_id'] = user.id
+        session['slack_user_id'] = slack_user_id
+        
+        flash('ログインしました。', 'success')
+        return redirect(url_for('index'))
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error during OAuth: {e}")
+        flash('ネットワークエラーが発生しました。しばらく待ってから再試行してください。', 'error')
         return redirect(url_for('login'))
-        
     except Exception as e:
-        print(f"OAuth callback error: {e}")
+        logger.error(f"OAuth callback error: {e}")
         flash('認証処理中にエラーが発生しました。', 'error')
         return redirect(url_for('login'))
 
@@ -278,29 +353,33 @@ def update_attendance(id):
     if 'user_id' not in session:
         return jsonify({'error': 'ログインが必要です'}), 401
     
-    attendance = Attendance.query.get(id)
-    if not attendance:
-        return jsonify({'error': '記録が見つかりません'}), 404
-    
-    # 所有者チェック
-    if attendance.user_id != session['user_id']:
-        return jsonify({'error': '権限がありません'}), 403
-    
-    data = request.get_json()
-    
-    if 'type' in data:
-        attendance.type = data['type']
-    
-    if 'timestamp' in data:
-        try:
-            attendance.timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
-        except ValueError:
-            return jsonify({'error': '日時の形式が正しくありません'}), 400
-    
-    attendance.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
-    
-    return jsonify({'message': '更新しました', 'attendance': attendance.to_dict()})
+    try:
+        attendance = Attendance.query.get(id)
+        if not attendance:
+            return jsonify({'error': '記録が見つかりません'}), 404
+        
+        # 所有者チェック
+        if attendance.user_id != session['user_id']:
+            return jsonify({'error': '権限がありません'}), 403
+        
+        data = request.get_json()
+        
+        if 'type' in data:
+            attendance.type = data['type']
+        
+        if 'timestamp' in data:
+            try:
+                attendance.timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({'error': '日時の形式が正しくありません'}), 400
+        
+        attendance.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify({'message': '更新しました', 'attendance': attendance.to_dict()})
+    except Exception as e:
+        logger.error(f"Error updating attendance: {e}")
+        return jsonify({'error': '更新中にエラーが発生しました'}), 500
 
 @app.route('/attendance/delete/<int:id>', methods=['DELETE'])
 def delete_attendance(id):
@@ -308,18 +387,22 @@ def delete_attendance(id):
     if 'user_id' not in session:
         return jsonify({'error': 'ログインが必要です'}), 401
     
-    attendance = Attendance.query.get(id)
-    if not attendance:
-        return jsonify({'error': '記録が見つかりません'}), 404
-    
-    # 所有者チェック
-    if attendance.user_id != session['user_id']:
-        return jsonify({'error': '権限がありません'}), 403
-    
-    db.session.delete(attendance)
-    db.session.commit()
-    
-    return jsonify({'message': '削除しました'})
+    try:
+        attendance = Attendance.query.get(id)
+        if not attendance:
+            return jsonify({'error': '記録が見つかりません'}), 404
+        
+        # 所有者チェック
+        if attendance.user_id != session['user_id']:
+            return jsonify({'error': '権限がありません'}), 403
+        
+        db.session.delete(attendance)
+        db.session.commit()
+        
+        return jsonify({'message': '削除しました'})
+    except Exception as e:
+        logger.error(f"Error deleting attendance: {e}")
+        return jsonify({'error': '削除中にエラーが発生しました'}), 500
 
 @app.route('/admin')
 def admin():
@@ -327,18 +410,23 @@ def admin():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # 管理者チェック
-    user = User.query.get(session['user_id'])
-    admin_user_id = os.environ.get('ADMIN_USER_ID')
-    
-    if not user or user.slack_user_id != admin_user_id:
-        flash('管理者権限が必要です。', 'error')
+    try:
+        # 管理者チェック
+        user = User.query.get(session['user_id'])
+        admin_user_id = os.environ.get('ADMIN_USER_ID')
+        
+        if not user or user.slack_user_id != admin_user_id:
+            flash('管理者権限が必要です。', 'error')
+            return redirect(url_for('index'))
+        
+        # 全ユーザーの出退勤記録を取得
+        attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
+        
+        return render_template('admin.html', attendances=attendances)
+    except Exception as e:
+        logger.error(f"Error in admin route: {e}")
+        flash('データの取得中にエラーが発生しました。', 'error')
         return redirect(url_for('index'))
-    
-    # 全ユーザーの出退勤記録を取得
-    attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
-    
-    return render_template('admin.html', attendances=attendances)
 
 # Slack イベントエンドポイント
 @app.route('/slack/events', methods=['POST'])
@@ -346,17 +434,59 @@ def slack_events():
     """Slack イベントを処理"""
     return handler.handle(request)
 
+# ヘルスチェックエンドポイント（デプロイ最適化）
+@app.route('/health')
+def health_check():
+    """ヘルスチェックエンドポイント"""
+    try:
+        # データベース接続確認
+        db.session.execute('SELECT 1')
+        return jsonify({'status': 'healthy', 'database': 'connected'}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+
 # データベース初期化コマンド
 @app.cli.command()
 def init_db():
     """データベースを初期化"""
-    db.create_all()
-    print('データベースが初期化されました。')
+    try:
+        db.create_all()
+        logger.info('データベースが初期化されました。')
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        raise
+
+# アプリケーション初期化関数
+def create_app():
+    """アプリケーションファクトリー関数"""
+    try:
+        with app.app_context():
+            # データベーステーブルの作成（存在しない場合のみ）
+            db.create_all()
+            logger.info("Database tables created/verified successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        # データベース接続エラーでもアプリケーションは起動を続行
+        pass
+    
+    return app
+
+# Gunicorn用の初期化（本番環境）
+if __name__ != '__main__':
+    # Gunicornから起動される場合
+    create_app()
 
 if __name__ == '__main__':
-    # データベースの初期化
-    with app.app_context():
-        db.create_all()
-    
-    # Flaskアプリケーションの起動
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    # 開発環境での直接実行
+    try:
+        # データベースの初期化
+        with app.app_context():
+            db.create_all()
+            logger.info("Development server: Database initialized")
+        
+        # Flaskアプリケーションの起動
+        app.run(debug=True, host='0.0.0.0', port=5001)
+    except Exception as e:
+        logger.error(f"Failed to start development server: {e}")
+        raise 
