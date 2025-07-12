@@ -44,20 +44,35 @@ app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-for-developme
 
 # セッション設定（持続性を改善）
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)  # セッションを30日間保持
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'  # 本番環境でのみHTTPS必須
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # JavaScriptからアクセス不可
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF保護
 
 # データベース設定の改善
-database_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
-# PostgreSQL URL の修正（ssl require対応）
-if database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # PostgreSQL用の接続設定の最適化
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
     
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,  # 接続前にping
+        'pool_recycle': 3600,   # 1時間で接続をリサイクル
+        'pool_size': 10,        # 接続プールサイズ
+        'max_overflow': 20,     # 最大オーバーフロー
+        'pool_timeout': 30,     # 接続タイムアウト（秒）
+        'connect_args': {'sslmode': 'require', 'connect_timeout': 30}
+    }
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/attendance.db'
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle': 3600,
+        'pool_timeout': 30
+    }
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_timeout': 20,
-    'pool_recycle': -1,
-    'pool_pre_ping': True
-}
 
 # データベースの初期化
 db.init_app(app)
@@ -234,13 +249,17 @@ def get_or_create_user(slack_user_id):
         return None
 
 def calculate_work_hours_statistics(user_id=None):
-    """活動時間の統計を計算（週単位）"""
+    """活動時間の統計を計算（週単位）- 最適化版"""
     try:
-        # 対象のユーザーを決定
+        # 対象のユーザーを決定（最適化：必要なデータのみ取得）
         if user_id:
             attendances = Attendance.query.filter_by(user_id=user_id).order_by(Attendance.timestamp).all()
         else:
-            attendances = Attendance.query.order_by(Attendance.timestamp).all()
+            # 全体統計の場合、過去3ヶ月に制限（パフォーマンス対策）
+            three_months_ago = datetime.now(timezone.utc) - timedelta(days=90)
+            attendances = Attendance.query.filter(
+                Attendance.timestamp >= three_months_ago
+            ).order_by(Attendance.timestamp).all()
         
         if not attendances:
             return {
@@ -259,14 +278,14 @@ def calculate_work_hours_statistics(user_id=None):
         # 週ごとの作業時間を計算
         weekly_hours = []
         
-        for user_id, records in user_attendances.items():
+        for uid, records in user_attendances.items():
             # 週ごとに記録を分類
             weekly_records = defaultdict(list)
             for record in records:
                 week_start = record.timestamp.date() - timedelta(days=record.timestamp.weekday())
                 weekly_records[week_start].append(record)
             
-            # 各週の作業時間を計算
+            # 各週の作業時間を計算（最適化：並列処理準備）
             for week_start, week_records in weekly_records.items():
                 # 出勤と退勤をペアにして作業時間を計算
                 checkin_records = [r for r in week_records if r.type == '出勤']
@@ -334,9 +353,18 @@ def index():
         # 管理者権限チェック用
         admin_user_id = os.environ.get('ADMIN_USER_ID')
         
-        # 統計情報を計算
-        personal_statistics = calculate_work_hours_statistics(user.id)
-        overall_statistics = calculate_work_hours_statistics()  # 全体統計
+        # 統計情報を計算（エラーハンドリング強化）
+        try:
+            personal_statistics = calculate_work_hours_statistics(user.id)
+        except Exception as e:
+            logger.error(f"Error calculating personal statistics: {e}")
+            personal_statistics = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
+        
+        try:
+            overall_statistics = calculate_work_hours_statistics()  # 全体統計
+        except Exception as e:
+            logger.error(f"Error calculating overall statistics: {e}")
+            overall_statistics = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
 
         return render_template('index.html', 
                              user=user, 
@@ -592,8 +620,12 @@ def admin():
         # 全ユーザーの出退勤記録を取得
         attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
         
-        # 全体の統計情報を計算
-        statistics_data = calculate_work_hours_statistics()
+        # 全体の統計情報を計算（エラーハンドリング強化）
+        try:
+            statistics_data = calculate_work_hours_statistics()
+        except Exception as e:
+            logger.error(f"Error calculating admin statistics: {e}")
+            statistics_data = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
         
         return render_template('admin.html', 
                              attendances=attendances,
@@ -650,19 +682,13 @@ def create_app():
 
 # Gunicorn用の初期化（本番環境）
 if __name__ != '__main__':
-    # Gunicornから起動される場合
+    # Gunicornから起動される場合（本番環境）
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
     create_app()
 
 if __name__ == '__main__':
     # 開発環境での直接実行
-    try:
-        # データベースの初期化
-        with app.app_context():
-            db.create_all()
-            logger.info("Development server: Database initialized")
-        
-        # Flaskアプリケーションの起動
-        app.run(debug=True, host='0.0.0.0', port=5001)
-    except Exception as e:
-        logger.error(f"Failed to start development server: {e}")
-        raise 
+    create_app()
+    app.run(debug=True, host='0.0.0.0', port=5000) 
