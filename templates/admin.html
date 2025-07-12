@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- 全体統計情報 -->
-<div class="row mb-4">
+<div class="row mb-4 statistics-row">
     <div class="col-md-3">
         <div class="card bg-primary text-white">
             <div class="card-body">
@@ -53,22 +53,6 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">記録週数</h5>
-                        <h2>{{ statistics.total_weeks }}</h2>
-                        <small>全社データ</small>
-                    </div>
-                    <div>
-                        <i class="fas fa-calendar-week fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <div class="row">
@@ -98,7 +82,10 @@
                             <tr>
                                 <td>
                                     <i class="fas fa-user-circle"></i>
-                                    {{ user.display_name }}
+                                    <a href="{{ url_for('admin_user_detail', user_id=user.id) }}" 
+                                       class="text-decoration-none">
+                                        {{ user.display_name }}
+                                    </a>
                                 </td>
                                 <td>{{ attendance.timestamp.strftime('%Y-%m-%d') }}</td>
                                 <td>{{ attendance.timestamp.strftime('%H:%M:%S') }}</td>
@@ -154,7 +141,10 @@
                             <tr>
                                 <td>
                                     <i class="fas fa-user-circle"></i>
-                                    {{ user_data.user.display_name }}
+                                    <a href="{{ url_for('admin_user_detail', user_id=user_data.user.id) }}" 
+                                       class="text-decoration-none">
+                                        {{ user_data.user.display_name }}
+                                    </a>
                                 </td>
                                 <td>{{ user_data.user.email or 'なし' }}</td>
                                 <td>

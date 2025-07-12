@@ -651,6 +651,74 @@ def admin():
         flash('データの取得中にエラーが発生しました。', 'error')
         return redirect(url_for('index'))
 
+@app.route('/admin/user/<int:user_id>')
+def admin_user_detail(user_id):
+    """管理者用の個別ユーザー詳細ページ"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        # 管理者チェック
+        admin_user = User.query.get(session['user_id'])
+        admin_user_id = os.environ.get('ADMIN_USER_ID')
+        
+        if not admin_user or admin_user.slack_user_id != admin_user_id:
+            flash('管理者権限が必要です。', 'error')
+            return redirect(url_for('index'))
+        
+        # 対象ユーザーを取得
+        target_user = User.query.get(user_id)
+        if not target_user:
+            flash('ユーザーが見つかりません。', 'error')
+            return redirect(url_for('admin'))
+        
+        # 期間指定を取得（デフォルトは過去30日）
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        if start_date and end_date:
+            try:
+                start_datetime = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+                end_datetime = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+            except ValueError:
+                flash('日付の形式が正しくありません。', 'error')
+                return redirect(url_for('admin_user_detail', user_id=user_id))
+        else:
+            # デフォルト：過去30日間
+            end_datetime = datetime.now(timezone.utc)
+            start_datetime = end_datetime - timedelta(days=30)
+        
+        # 指定期間内のユーザーの出退勤記録を取得
+        attendances = Attendance.query.filter(
+            Attendance.user_id == user_id,
+            Attendance.timestamp >= start_datetime,
+            Attendance.timestamp <= end_datetime
+        ).order_by(Attendance.timestamp.desc()).all()
+        
+        # 個別ユーザーの統計情報を計算
+        try:
+            user_statistics = calculate_work_hours_statistics(user_id)
+        except Exception as e:
+            logger.error(f"Error calculating user statistics: {e}")
+            user_statistics = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
+        
+        # 期間指定のフォーマット
+        formatted_start_date = start_datetime.strftime('%Y-%m-%d')
+        formatted_end_date = end_datetime.strftime('%Y-%m-%d')
+        
+        return render_template('admin_user_detail.html', 
+                             target_user=target_user,
+                             attendances=attendances,
+                             user_statistics=user_statistics,
+                             start_date=formatted_start_date,
+                             end_date=formatted_end_date,
+                             admin_user_id=admin_user_id)
+    except Exception as e:
+        logger.error(f"Error in admin_user_detail route: {e}")
+        flash('データの取得中にエラーが発生しました。', 'error')
+        return redirect(url_for('admin'))
+
 # Slack イベントエンドポイント
 @app.route('/slack/events', methods=['POST'])
 def slack_events():
