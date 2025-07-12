@@ -349,8 +349,45 @@ def index():
             session.clear()
             return redirect(url_for('login'))
         
-        # ユーザーの出退勤記録を取得（最新順）
-        attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp.desc()).all()
+        # 期間指定を取得
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        if start_date and end_date:
+            # 期間指定がある場合
+            try:
+                start_datetime = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+                end_datetime = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                
+                # 指定期間内の出退勤記録を取得
+                attendances = Attendance.query.filter(
+                    Attendance.user_id == user.id,
+                    Attendance.timestamp >= start_datetime,
+                    Attendance.timestamp <= end_datetime
+                ).order_by(Attendance.timestamp.desc()).all()
+                
+                formatted_start_date = start_datetime.strftime('%Y-%m-%d')
+                formatted_end_date = end_datetime.strftime('%Y-%m-%d')
+                
+            except ValueError:
+                flash('日付の形式が正しくありません。', 'error')
+                return redirect(url_for('index'))
+        else:
+            # デフォルト：今日の記録を表示
+            today = datetime.now(timezone.utc).date()
+            start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            # 今日の出退勤記録を取得
+            attendances = Attendance.query.filter(
+                Attendance.user_id == user.id,
+                Attendance.timestamp >= start_datetime,
+                Attendance.timestamp <= end_datetime
+            ).order_by(Attendance.timestamp.desc()).all()
+            
+            formatted_start_date = today.strftime('%Y-%m-%d')
+            formatted_end_date = today.strftime('%Y-%m-%d')
         
         # 管理者権限チェック用
         admin_user_id = os.environ.get('ADMIN_USER_ID')
@@ -373,7 +410,9 @@ def index():
                              attendances=attendances, 
                              admin_user_id=admin_user_id,
                              personal_statistics=personal_statistics,
-                             overall_statistics=overall_statistics)
+                             overall_statistics=overall_statistics,
+                             start_date=formatted_start_date,
+                             end_date=formatted_end_date)
     except Exception as e:
         logger.error(f"Error in index route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')

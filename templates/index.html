@@ -3,54 +3,118 @@
 {% block title %}出退勤記録 - 出退勤管理システム{% endblock %}
 
 {% block content %}
-<!-- 個人統計情報 -->
-<div class="row mb-4 statistics-row">
+<!-- 統計情報 -->
+<div class="row mb-4">
     <div class="col-12">
-        <h5 class="mb-3">📊 {{ user.display_name }}さんの個人統計</h5>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-primary text-white">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">📊 統計情報</h5>
+            </div>
             <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週平均時間</h5>
-                        <h2>{{ personal_statistics.average_hours }}h</h2>
-                        <small>個人平均</small>
+                <div class="row">
+                    <div class="col-12 mb-3">
+                        <h6 class="text-primary">{{ user.display_name }}さんの個人統計</h6>
                     </div>
-                    <div>
-                        <i class="fas fa-user fa-2x"></i>
+                    <div class="col-md-4">
+                        <div class="card bg-primary text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">週平均時間</h6>
+                                        <h4 class="mb-0">{{ personal_statistics.average_hours }}h</h4>
+                                        <small>個人平均</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-user fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-success text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">週中央値</h6>
+                                        <h4 class="mb-0">{{ personal_statistics.median_hours }}h</h4>
+                                        <small>個人中央値</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-chart-bar fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-info text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">総時間</h6>
+                                        <h4 class="mb-0">{{ personal_statistics.total_hours }}h</h4>
+                                        <small>個人合計</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-clock fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週中央値</h5>
-                        <h2>{{ personal_statistics.median_hours }}h</h2>
-                        <small>個人中央値</small>
+                <div class="row">
+                    <div class="col-12 mb-3">
+                        <h6 class="text-secondary">🏢 全社統計情報</h6>
                     </div>
-                    <div>
-                        <i class="fas fa-chart-bar fa-2x"></i>
+                    <div class="col-md-4">
+                        <div class="card bg-secondary text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">週平均時間</h6>
+                                        <h4 class="mb-0">{{ overall_statistics.average_hours }}h</h4>
+                                        <small>全社平均</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-chart-line fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">総時間</h5>
-                        <h2>{{ personal_statistics.total_hours }}h</h2>
-                        <small>個人合計</small>
+                    <div class="col-md-4">
+                        <div class="card bg-dark text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">週中央値</h6>
+                                        <h4 class="mb-0">{{ overall_statistics.median_hours }}h</h4>
+                                        <small>全社中央値</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-chart-bar fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <i class="fas fa-clock fa-2x"></i>
+                    <div class="col-md-4">
+                        <div class="card bg-secondary text-white mb-3" style="height: 110px;">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1">総時間</h6>
+                                        <h4 class="mb-0">{{ overall_statistics.total_hours }}h</h4>
+                                        <small>全社合計</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-clock fa-lg"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -58,56 +122,47 @@
     </div>
 </div>
 
-<!-- 全体統計情報 -->
-<div class="row mb-4 statistics-row">
+<!-- 期間指定フォーム -->
+<div class="row mb-4">
     <div class="col-12">
-        <h5 class="mb-3">🏢 全社統計情報</h5>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-secondary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週平均時間</h5>
-                        <h2>{{ overall_statistics.average_hours }}h</h2>
-                        <small>全社平均</small>
-                    </div>
-                    <div>
-                        <i class="fas fa-chart-line fa-2x"></i>
-                    </div>
-                </div>
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-calendar-alt"></i> 期間指定
+                </h5>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-dark text-white">
             <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週中央値</h5>
-                        <h2>{{ overall_statistics.median_hours }}h</h2>
-                        <small>全社中央値</small>
+                <form method="get" action="{{ url_for('index') }}">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="start_date">開始日</label>
+                                <input type="date" class="form-control" id="start_date" name="start_date" 
+                                       value="{{ start_date }}">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="end_date">終了日</label>
+                                <input type="date" class="form-control" id="end_date" name="end_date" 
+                                       value="{{ end_date }}">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>&nbsp;</label>
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-search"></i> 絞り込み
+                                    </button>
+                                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                                        <i class="fas fa-refresh"></i> リセット
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <i class="fas fa-chart-bar fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-secondary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">総時間</h5>
-                        <h2>{{ overall_statistics.total_hours }}h</h2>
-                        <small>全社合計</small>
-                    </div>
-                    <div>
-                        <i class="fas fa-clock fa-2x"></i>
-                    </div>
-                </div>
+                </form>
             </div>
         </div>
     </div>
@@ -120,6 +175,13 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <h4 class="card-title mb-0">
                         <i class="fas fa-user"></i> {{ user.display_name }}さんの出退勤記録
+                        <small class="text-light">
+                            {% if start_date == end_date %}
+                                ({{ start_date }})
+                            {% else %}
+                                ({{ start_date }} ～ {{ end_date }})
+                            {% endif %}
+                        </small>
                     </h4>
                     <button class="btn btn-light btn-sm" id="addAttendanceBtn">
                         <i class="fas fa-plus"></i> 記録を追加
@@ -362,6 +424,17 @@ $(document).ready(function() {
                 alert('エラーが発生しました: ' + xhr.responseJSON.error);
             }
         });
+    });
+    
+    // 期間指定フォームの日付validation
+    $('#start_date, #end_date').on('change', function() {
+        const startDate = $('#start_date').val();
+        const endDate = $('#end_date').val();
+        
+        if (startDate && endDate && startDate > endDate) {
+            alert('開始日は終了日より前である必要があります。');
+            $(this).val('');
+        }
     });
 });
 </script>
