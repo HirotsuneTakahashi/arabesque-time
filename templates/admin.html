@@ -3,6 +3,74 @@
 {% block title %}管理者画面 - 出退勤管理システム{% endblock %}
 
 {% block content %}
+<!-- 全体統計情報 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週平均時間</h5>
+                        <h2>{{ statistics.average_hours }}h</h2>
+                        <small>全社平均</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-line fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週中央値</h5>
+                        <h2>{{ statistics.median_hours }}h</h2>
+                        <small>全社中央値</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-bar fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">総時間</h5>
+                        <h2>{{ statistics.total_hours }}h</h2>
+                        <small>全社合計</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-clock fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">記録週数</h5>
+                        <h2>{{ statistics.total_weeks }}</h2>
+                        <small>全社データ</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-calendar-week fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <div class="card">
@@ -60,7 +128,7 @@
     </div>
 </div>
 
-<!-- 統計情報 -->
+<!-- 基本統計情報 -->
 <div class="row mt-4">
     <div class="col-md-3">
         <div class="card bg-primary text-white">

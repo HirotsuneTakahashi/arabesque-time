@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, redirect, url_for, request, jsonify, session, flash
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 import threading
 import requests
 import logging
+import statistics
+from collections import defaultdict
 
 # ログ設定の改善
 logging.basicConfig(level=logging.INFO)
@@ -228,6 +230,88 @@ def get_or_create_user(slack_user_id):
         logger.error(f"Error in get_or_create_user: {e}")
         return None
 
+def calculate_work_hours_statistics(user_id=None):
+    """活動時間の統計を計算（週単位）"""
+    try:
+        # 対象のユーザーを決定
+        if user_id:
+            attendances = Attendance.query.filter_by(user_id=user_id).order_by(Attendance.timestamp).all()
+        else:
+            attendances = Attendance.query.order_by(Attendance.timestamp).all()
+        
+        if not attendances:
+            return {
+                'weekly_hours': [],
+                'average_hours': 0,
+                'median_hours': 0,
+                'total_weeks': 0,
+                'total_hours': 0
+            }
+        
+        # ユーザーごとの出退勤記録を整理
+        user_attendances = defaultdict(list)
+        for attendance in attendances:
+            user_attendances[attendance.user_id].append(attendance)
+        
+        # 週ごとの作業時間を計算
+        weekly_hours = []
+        
+        for user_id, records in user_attendances.items():
+            # 週ごとに記録を分類
+            weekly_records = defaultdict(list)
+            for record in records:
+                week_start = record.timestamp.date() - timedelta(days=record.timestamp.weekday())
+                weekly_records[week_start].append(record)
+            
+            # 各週の作業時間を計算
+            for week_start, week_records in weekly_records.items():
+                # 出勤と退勤をペアにして作業時間を計算
+                checkin_records = [r for r in week_records if r.type == '出勤']
+                checkout_records = [r for r in week_records if r.type == '退勤']
+                
+                week_hours = 0
+                for checkin in checkin_records:
+                    # 同じ日で最も近い退勤記録を探す
+                    same_day_checkouts = [
+                        c for c in checkout_records 
+                        if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
+                    ]
+                    if same_day_checkouts:
+                        checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
+                        hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
+                        week_hours += hours
+                
+                if week_hours > 0:
+                    weekly_hours.append(week_hours)
+        
+        # 統計値を計算
+        if weekly_hours:
+            average_hours = statistics.mean(weekly_hours)
+            median_hours = statistics.median(weekly_hours)
+            total_hours = sum(weekly_hours)
+        else:
+            average_hours = 0
+            median_hours = 0
+            total_hours = 0
+        
+        return {
+            'weekly_hours': weekly_hours,
+            'average_hours': round(average_hours, 2),
+            'median_hours': round(median_hours, 2),
+            'total_weeks': len(weekly_hours),
+            'total_hours': round(total_hours, 2)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating statistics: {e}")
+        return {
+            'weekly_hours': [],
+            'average_hours': 0,
+            'median_hours': 0,
+            'total_weeks': 0,
+            'total_hours': 0
+        }
+
 # Webアプリケーションのルート
 @app.route('/')
 def index():
@@ -244,7 +328,17 @@ def index():
         # ユーザーの出退勤記録を取得（最新順）
         attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp.desc()).all()
         
-        return render_template('index.html', user=user, attendances=attendances)
+        # 管理者権限チェック用
+        admin_user_id = os.environ.get('ADMIN_USER_ID')
+        
+        # 統計情報を計算
+        statistics_data = calculate_work_hours_statistics(user.id)
+        
+        return render_template('index.html', 
+                             user=user, 
+                             attendances=attendances, 
+                             admin_user_id=admin_user_id,
+                             statistics=statistics_data)
     except Exception as e:
         logger.error(f"Error in index route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')
@@ -382,6 +476,41 @@ def logout():
     flash('ログアウトしました。', 'info')
     return redirect(url_for('login'))
 
+@app.route('/attendance/add', methods=['POST'])
+def add_attendance():
+    """出退勤記録の新規追加"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'ログインが必要です'}), 401
+    
+    try:
+        data = request.get_json()
+        
+        if not data.get('type') or not data.get('timestamp'):
+            return jsonify({'error': '種別と日時は必須です'}), 400
+        
+        if data['type'] not in ['出勤', '退勤']:
+            return jsonify({'error': '種別は「出勤」または「退勤」である必要があります'}), 400
+        
+        try:
+            timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+        except ValueError:
+            return jsonify({'error': '日時の形式が正しくありません'}), 400
+        
+        # 新規出退勤記録を作成
+        attendance = Attendance(
+            user_id=session['user_id'],
+            type=data['type'],
+            timestamp=timestamp
+        )
+        
+        db.session.add(attendance)
+        db.session.commit()
+        
+        return jsonify({'message': '記録を追加しました', 'attendance': attendance.to_dict()})
+    except Exception as e:
+        logger.error(f"Error adding attendance: {e}")
+        return jsonify({'error': '追加中にエラーが発生しました'}), 500
+
 @app.route('/attendance/update/<int:id>', methods=['POST'])
 def update_attendance(id):
     """出退勤記録の更新"""
@@ -457,7 +586,13 @@ def admin():
         # 全ユーザーの出退勤記録を取得
         attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
         
-        return render_template('admin.html', attendances=attendances)
+        # 全体の統計情報を計算
+        statistics_data = calculate_work_hours_statistics()
+        
+        return render_template('admin.html', 
+                             attendances=attendances,
+                             statistics=statistics_data,
+                             admin_user_id=admin_user_id)
     except Exception as e:
         logger.error(f"Error in admin route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')

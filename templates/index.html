@@ -3,13 +3,82 @@
 {% block title %}出退勤記録 - 出退勤管理システム{% endblock %}
 
 {% block content %}
+<!-- 統計情報 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週平均時間</h5>
+                        <h2>{{ statistics.average_hours }}h</h2>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-line fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週中央値</h5>
+                        <h2>{{ statistics.median_hours }}h</h2>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-bar fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">総時間</h5>
+                        <h2>{{ statistics.total_hours }}h</h2>
+                    </div>
+                    <div>
+                        <i class="fas fa-clock fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">記録週数</h5>
+                        <h2>{{ statistics.total_weeks }}</h2>
+                    </div>
+                    <div>
+                        <i class="fas fa-calendar-week fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header bg-primary text-white">
-                <h4 class="card-title mb-0">
-                    <i class="fas fa-user"></i> {{ user.display_name }}さんの出退勤記録
-                </h4>
+                <div class="d-flex justify-content-between align-items-center">
+                    <h4 class="card-title mb-0">
+                        <i class="fas fa-user"></i> {{ user.display_name }}さんの出退勤記録
+                    </h4>
+                    <button class="btn btn-light btn-sm" id="addAttendanceBtn">
+                        <i class="fas fa-plus"></i> 記録を追加
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 {% if attendances %}
@@ -57,9 +126,41 @@
                 <div class="text-center py-4">
                     <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
                     <p class="text-muted">まだ出退勤記録がありません。</p>
-                    <p class="text-muted">Slackボットに「出勤」または「退勤」のメッセージを送信して打刻してください。</p>
+                    <p class="text-muted">Slackボットに「出勤」または「退勤」のメッセージを送信するか、上の「記録を追加」ボタンから手動で記録してください。</p>
                 </div>
                 {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新規追加モーダル -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">出退勤記録の追加</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addForm">
+                    <div class="mb-3">
+                        <label for="addType" class="form-label">種別</label>
+                        <select class="form-select" id="addType" required>
+                            <option value="">選択してください</option>
+                            <option value="出勤">出勤</option>
+                            <option value="退勤">退勤</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="addTimestamp" class="form-label">日時</label>
+                        <input type="datetime-local" class="form-control" id="addTimestamp" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                <button type="button" class="btn btn-primary" id="saveAdd">追加</button>
             </div>
         </div>
     </div>
@@ -123,6 +224,14 @@ $(document).ready(function() {
     let currentEditId = null;
     let currentDeleteId = null;
 
+    // 新規追加ボタンのクリック処理
+    $('#addAttendanceBtn').click(function() {
+        const now = new Date();
+        const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+        $('#addTimestamp').val(localDate.toISOString().slice(0, 16));
+        $('#addModal').modal('show');
+    });
+
     // 編集ボタンのクリック処理
     $('.edit-btn').click(function() {
         currentEditId = $(this).data('id');
@@ -142,6 +251,32 @@ $(document).ready(function() {
     $('.delete-btn').click(function() {
         currentDeleteId = $(this).data('id');
         $('#deleteModal').modal('show');
+    });
+
+    // 新規追加の保存処理
+    $('#saveAdd').click(function() {
+        const data = {
+            type: $('#addType').val(),
+            timestamp: $('#addTimestamp').val()
+        };
+
+        if (!data.type || !data.timestamp) {
+            alert('種別と日時を入力してください。');
+            return;
+        }
+
+        $.ajax({
+            url: '/attendance/add',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                location.reload();
+            },
+            error: function(xhr) {
+                alert('エラーが発生しました: ' + xhr.responseJSON.error);
+            }
+        });
     });
 
     // 保存ボタンのクリック処理
