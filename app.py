@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, render_template, redirect, url_for, request, jsonify, session, flash
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
@@ -50,7 +50,7 @@ def handle_checkin(message, say):
     attendance = Attendance(
         user_id=user.id,
         type='出勤',
-        timestamp=datetime.now()
+        timestamp=datetime.now(timezone.utc)
     )
     
     db.session.add(attendance)
@@ -71,7 +71,7 @@ def handle_checkout(message, say):
     attendance = Attendance(
         user_id=user.id,
         type='退勤',
-        timestamp=datetime.now()
+        timestamp=datetime.now(timezone.utc)
     )
     
     db.session.add(attendance)
@@ -235,7 +235,7 @@ def update_attendance(id):
         except ValueError:
             return jsonify({'error': '日時の形式が正しくありません'}), 400
     
-    attendance.updated_at = datetime.now()
+    attendance.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     
     return jsonify({'message': '更新しました', 'attendance': attendance.to_dict()})
