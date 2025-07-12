@@ -190,7 +190,7 @@ def handle_help(message, say):
 • `help`
 
 💻 **Web画面でも確認できます:**
-アプリにログインして詳細な記録を確認できます。
+https://arabesque-time.onrender.com/
     """
     say(help_text)
 
