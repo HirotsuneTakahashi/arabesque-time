@@ -1,136 +1,138 @@
 # 出退勤管理システム
 
-SlackのダイレクトメッセージとWebページを使用した出退勤管理システムです。
+Slackボットと連携した出退勤管理システムです。
 
 ## 機能
 
-- **Slack連携**: Slackボットに「出勤」「退勤」とメッセージを送信することで打刻
-- **Web管理**: 出退勤記録の確認、編集、削除
-- **管理者機能**: 全ユーザーの出退勤記録を一覧表示
-- **Slack認証**: Slackアカウントでのログイン機能
+- Slackボットによる出退勤打刻
+- Web画面での出退勤記録確認
+- 管理者用の全ユーザー記録確認
 
-## 技術スタック
+## 使用方法
 
-- **バックエンド**: Python, Flask, Slack Bolt for Python
-- **データベース**: SQLAlchemy, PostgreSQL (開発中はSQLite)
-- **フロントエンド**: Jinja2, Bootstrap 5
+### ボットでの打刻
 
-## セットアップ
+- 出勤: `出勤` または `おはよう`
+- 退勤: `退勤` または `おつかれ`
+- ヘルプ: `ヘルプ` または `help`
 
-### 1. 必要なライブラリのインストール
+### Web画面
 
-```bash
-pip install -r requirements.txt
+1. アプリにアクセス
+2. 「Sign in with Slack」でログイン
+3. 出退勤記録を確認
+
+## 環境変数
+
 ```
-
-### 2. Slackアプリの設定
-
-1. [Slack API](https://api.slack.com/apps)でアプリを作成
-2. **OAuth & Permissions**で以下のスコープを追加:
-   - `chat:write`
-   - `users:read`
-   - `users:read.email`
-   - `identity.basic`
-   - `identity.email`
-3. **Event Subscriptions**を有効化:
-   - Request URL: `https://your-domain.com/slack/events`
-   - Subscribe to bot events: `message.im`
-4. **App Home**でメッセージタブを有効化
-
-### 3. 環境変数の設定
-
-`.env`ファイルを作成し、以下の値を設定:
-
-```env
-# Slack Configuration
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_SIGNING_SECRET=your-signing-secret
 SLACK_CLIENT_ID=your-client-id
 SLACK_CLIENT_SECRET=your-client-secret
-
-# Database Configuration
-DATABASE_URL=sqlite:///attendance.db
-
-# Flask Configuration
-SECRET_KEY=your-secret-key-here
-FLASK_ENV=development
-
-# Admin Configuration
+DATABASE_URL=your-database-url
 ADMIN_USER_ID=your-admin-slack-user-id
+SECRET_KEY=your-secret-key-for-session
 ```
 
-### 4. データベースの初期化
+## トラブルシューティング
+
+### 1. ボットがDMに応答しない場合
+
+**問題**: ボットにメッセージを送っても応答がない
+
+**解決方法**:
+
+1. **Slack App の Event Subscriptions を確認**:
+   - Slack App の管理画面で「Event Subscriptions」を有効化
+   - Request URL を `https://your-domain.com/slack/events` に設定
+   - 「Subscribe to bot events」で以下を追加:
+     - `message.im` (Direct Message)
+     - `message.channels` (チャンネル内メッセージ)
+     - `message.groups` (プライベートチャンネル)
+
+2. **Bot Token Scopes を確認**:
+   - `chat:write` (メッセージ送信)
+   - `users:read` (ユーザー情報読み取り)
+   - `im:history` (DMメッセージ履歴)
+
+3. **アプリをワークスペースに再インストール**:
+   - 設定変更後は必ずアプリを再インストールしてください
+
+### 2. 「Sign in with Slack」エラーの場合
+
+**問題**: OAuth認証でエラーが発生する
+
+**解決方法**:
+
+1. **OAuth & Permissions の設定**:
+   - Redirect URLs に `https://your-domain.com/callback` を追加
+   - User Token Scopes に以下を追加:
+     - `identity.basic` (基本情報)
+     - `identity.email` (メールアドレス)
+
+2. **Client ID と Client Secret の確認**:
+   - 環境変数の値が正しいか確認
+   - 特殊文字がエスケープされていないか確認
+
+### 3. 405 エラーの場合
+
+**問題**: SlackからのPOSTリクエストが405エラー
+
+**解決方法**:
+
+1. **Request URL の確認**:
+   - Slack App の Event Subscriptions で
+   - Request URL を `https://your-domain.com/slack/events` に設定
+   - URL の末尾に `/` がないことを確認
+
+2. **アプリの再デプロイ**:
+   - 設定変更後にアプリを再デプロイ
+
+### 4. データベース接続エラーの場合
+
+**問題**: データベースに接続できない
+
+**解決方法**:
+
+1. **DATABASE_URL の確認**:
+   - 環境変数が正しく設定されているか確認
+   - データベースが起動しているか確認
+
+2. **データベースの初期化**:
+   ```bash
+   flask init-db
+   ```
+
+### 5. 環境変数の設定確認
+
+以下のコマンドで環境変数を確認できます:
 
 ```bash
-flask init-db
+# 環境変数の確認（本番環境）
+env | grep SLACK
+env | grep DATABASE
 ```
 
-### 5. アプリケーションの起動
+### 6. ログの確認
+
+Render等のプラットフォームでログを確認:
 
 ```bash
-python app.py
+# Renderの場合
+# Dashboard → Service → Logs
 ```
 
-## 使用方法
+### 7. よくある問題と解決策
 
-### 出勤打刻
+| 問題 | 原因 | 解決方法 |
+|------|------|----------|
+| ボット無応答 | Event Subscriptions未設定 | Slack App設定で有効化 |
+| 405エラー | Request URL誤り | `/slack/events`に修正 |
+| OAuth失敗 | Redirect URL未設定 | `/callback`エンドポイント追加 |
+| DB接続失敗 | DATABASE_URL誤り | 環境変数確認 |
 
-Slackボットに以下のメッセージを送信:
-- `出勤`
-- `おはよう`
+## デバッグ方法
 
-### 退勤打刻
-
-Slackボットに以下のメッセージを送信:
-- `退勤`
-- `おつかれ`
-
-### Webページでの確認
-
-1. `http://localhost:5000`にアクセス
-2. Slackアカウントでログイン
-3. 出退勤記録を確認・編集
-
-### 管理者機能
-
-環境変数`ADMIN_USER_ID`に設定されたSlackユーザーIDを持つユーザーは、`/admin`ページで全ユーザーの出退勤記録を確認できます。
-
-## ファイル構成
-
-```
-/
-├── app.py                 # Flaskアプリケーション本体
-├── models.py              # SQLAlchemyのモデル定義
-├── requirements.txt       # 必要なライブラリ一覧
-├── .env                   # 環境変数設定ファイル
-├── attendance.db          # SQLiteデータベース (自動生成)
-├── templates/
-│   ├── _base.html         # ベーステンプレート
-│   ├── index.html         # メインページ
-│   ├── admin.html         # 管理者ページ
-│   └── login.html         # ログインページ
-├── static/
-│   └── style.css          # カスタムCSS
-└── README.md              # このファイル
-```
-
-## API エンドポイント
-
-- `GET /`: メインページ（ログイン後）
-- `GET /login`: ログインページ
-- `GET /callback`: Slack OAuth コールバック
-- `GET /logout`: ログアウト
-- `POST /attendance/update/<id>`: 出退勤記録の更新
-- `DELETE /attendance/delete/<id>`: 出退勤記録の削除
-- `GET /admin`: 管理者ページ
-- `POST /slack/events`: Slack イベント処理
-
-## セキュリティ注意事項
-
-- `.env`ファイルは絶対に公開リポジトリにコミットしないでください
-- 本番環境では適切な認証とHTTPS通信を使用してください
-- データベースのバックアップを定期的に取得してください
-
-## ライセンス
-
-このプロジェクトはMITライセンスの下で公開されています。
+1. **ボットへメッセージ送信**: `ヘルプ` と送信してボットの動作確認
+2. **ログ確認**: アプリケーションログでエラーメッセージを確認
+3. **Slack App設定**: Event Subscriptions と OAuth設定を再確認

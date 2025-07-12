@@ -16,7 +16,7 @@ load_dotenv()
 
 # Flaskアプリケーションの設定
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-for-development')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -26,7 +26,8 @@ db.init_app(app)
 # Slack Boltアプリケーションの設定
 slack_app = App(
     token=os.environ.get('SLACK_BOT_TOKEN'),
-    signing_secret=os.environ.get('SLACK_SIGNING_SECRET')
+    signing_secret=os.environ.get('SLACK_SIGNING_SECRET'),
+    process_before_response=True
 )
 
 # Slack Web クライアント
@@ -41,44 +42,96 @@ handler = SlackRequestHandler(slack_app)
 @slack_app.message(re.compile(r'(出勤|おはよう)', re.IGNORECASE))
 def handle_checkin(message, say):
     """出勤打刻を処理"""
-    user_id = message['user']
-    
-    # ユーザー情報を取得
-    user = get_or_create_user(user_id)
-    
-    # 出勤記録を作成
-    attendance = Attendance(
-        user_id=user.id,
-        type='出勤',
-        timestamp=datetime.now(timezone.utc)
-    )
-    
-    db.session.add(attendance)
-    db.session.commit()
-    
-    # 返信メッセージを送信
-    say(f"出勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+    try:
+        user_id = message['user']
+        print(f"Received checkin message from user: {user_id}")
+        
+        # ユーザー情報を取得
+        user = get_or_create_user(user_id)
+        
+        # 出勤記録を作成
+        attendance = Attendance(
+            user_id=user.id,
+            type='出勤',
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        db.session.add(attendance)
+        db.session.commit()
+        
+        # 返信メッセージを送信
+        say(f"出勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Checkin recorded for user: {user_id}")
+        
+    except Exception as e:
+        print(f"Error handling checkin: {e}")
+        say("申し訳ありませんが、出勤打刻の処理中にエラーが発生しました。")
 
 @slack_app.message(re.compile(r'(退勤|おつかれ)', re.IGNORECASE))
 def handle_checkout(message, say):
     """退勤打刻を処理"""
-    user_id = message['user']
+    try:
+        user_id = message['user']
+        print(f"Received checkout message from user: {user_id}")
+        
+        # ユーザー情報を取得
+        user = get_or_create_user(user_id)
+        
+        # 退勤記録を作成
+        attendance = Attendance(
+            user_id=user.id,
+            type='退勤',
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        db.session.add(attendance)
+        db.session.commit()
+        
+        # 返信メッセージを送信
+        say(f"退勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Checkout recorded for user: {user_id}")
+        
+    except Exception as e:
+        print(f"Error handling checkout: {e}")
+        say("申し訳ありませんが、退勤打刻の処理中にエラーが発生しました。")
+
+@slack_app.message(re.compile(r'(ヘルプ|help)', re.IGNORECASE))
+def handle_help(message, say):
+    """ヘルプメッセージを送信"""
+    help_text = """
+📋 **出退勤管理ボットの使い方**
+
+🌅 **出勤打刻:**
+• `出勤`
+• `おはよう`
+
+🌙 **退勤打刻:**
+• `退勤`
+• `おつかれ`
+
+❓ **このヘルプを表示:**
+• `ヘルプ`
+• `help`
+
+💻 **Web画面でも確認できます:**
+アプリにログインして詳細な記録を確認できます。
+    """
+    say(help_text)
+
+# 全てのメッセージをキャッチしてログ出力（デバッグ用）
+@slack_app.message(".*")
+def handle_all_messages(message, say):
+    """全てのメッセージをログ出力（デバッグ用）"""
+    user_id = message.get('user')
+    text = message.get('text', '')
+    print(f"Received message from {user_id}: {text}")
     
-    # ユーザー情報を取得
-    user = get_or_create_user(user_id)
+    # 既に処理されたメッセージは無視
+    if re.search(r'(出勤|おはよう|退勤|おつかれ|ヘルプ|help)', text, re.IGNORECASE):
+        return
     
-    # 退勤記録を作成
-    attendance = Attendance(
-        user_id=user.id,
-        type='退勤',
-        timestamp=datetime.now(timezone.utc)
-    )
-    
-    db.session.add(attendance)
-    db.session.commit()
-    
-    # 返信メッセージを送信
-    say(f"退勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+    # 未対応のメッセージに対してヘルプを送信
+    say("こんにちは！出退勤管理ボットです。`ヘルプ`と送信すると使い方を確認できます。")
 
 def get_or_create_user(slack_user_id):
     """Slackユーザー情報を取得または作成"""
@@ -127,6 +180,11 @@ def index():
     attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp.desc()).all()
     
     return render_template('index.html', user=user, attendances=attendances)
+
+@app.route('/', methods=['POST'])
+def handle_slack_events():
+    """Slackイベントを処理（ルートパス）"""
+    return handler.handle(request)
 
 @app.route('/login')
 def login():
