@@ -42,6 +42,9 @@ if missing_vars:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-for-development')
 
+# セッション設定（持続性を改善）
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)  # セッションを30日間保持
+
 # データベース設定の改善
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
 # PostgreSQL URL の修正（ssl require対応）
@@ -332,13 +335,15 @@ def index():
         admin_user_id = os.environ.get('ADMIN_USER_ID')
         
         # 統計情報を計算
-        statistics_data = calculate_work_hours_statistics(user.id)
-        
+        personal_statistics = calculate_work_hours_statistics(user.id)
+        overall_statistics = calculate_work_hours_statistics()  # 全体統計
+
         return render_template('index.html', 
                              user=user, 
                              attendances=attendances, 
                              admin_user_id=admin_user_id,
-                             statistics=statistics_data)
+                             personal_statistics=personal_statistics,
+                             overall_statistics=overall_statistics)
     except Exception as e:
         logger.error(f"Error in index route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')
@@ -452,6 +457,7 @@ def callback():
             logger.info(f"Updated user info: {slack_user_id}")
         
         # セッションに保存
+        session.permanent = True  # セッションを永続化
         session['user_id'] = user.id
         session['slack_user_id'] = slack_user_id
         session['user_name'] = user_name

@@ -3,18 +3,22 @@
 {% block title %}出退勤記録 - 出退勤管理システム{% endblock %}
 
 {% block content %}
-<!-- 統計情報 -->
+<!-- 個人統計情報 -->
 <div class="row mb-4">
+    <div class="col-12">
+        <h5 class="mb-3">📊 {{ user.display_name }}さんの個人統計</h5>
+    </div>
     <div class="col-md-3">
         <div class="card bg-primary text-white">
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">週平均時間</h5>
-                        <h2>{{ statistics.average_hours }}h</h2>
+                        <h2>{{ personal_statistics.average_hours }}h</h2>
+                        <small>個人平均</small>
                     </div>
                     <div>
-                        <i class="fas fa-chart-line fa-2x"></i>
+                        <i class="fas fa-user fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -26,7 +30,8 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">週中央値</h5>
-                        <h2>{{ statistics.median_hours }}h</h2>
+                        <h2>{{ personal_statistics.median_hours }}h</h2>
+                        <small>個人中央値</small>
                     </div>
                     <div>
                         <i class="fas fa-chart-bar fa-2x"></i>
@@ -41,7 +46,8 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">総時間</h5>
-                        <h2>{{ statistics.total_hours }}h</h2>
+                        <h2>{{ personal_statistics.total_hours }}h</h2>
+                        <small>個人合計</small>
                     </div>
                     <div>
                         <i class="fas fa-clock fa-2x"></i>
@@ -56,7 +62,79 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">記録週数</h5>
-                        <h2>{{ statistics.total_weeks }}</h2>
+                        <h2>{{ personal_statistics.total_weeks }}</h2>
+                        <small>個人記録</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-calendar-week fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 全体統計情報 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="mb-3">🏢 全社統計情報</h5>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-secondary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週平均時間</h5>
+                        <h2>{{ overall_statistics.average_hours }}h</h2>
+                        <small>全社平均</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-line fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-dark text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">週中央値</h5>
+                        <h2>{{ overall_statistics.median_hours }}h</h2>
+                        <small>全社中央値</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-chart-bar fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-secondary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">総時間</h5>
+                        <h2>{{ overall_statistics.total_hours }}h</h2>
+                        <small>全社合計</small>
+                    </div>
+                    <div>
+                        <i class="fas fa-clock fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-dark text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">記録週数</h5>
+                        <h2>{{ overall_statistics.total_weeks }}</h2>
+                        <small>全社データ</small>
                     </div>
                     <div>
                         <i class="fas fa-calendar-week fa-2x"></i>
