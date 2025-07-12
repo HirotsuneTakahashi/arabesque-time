@@ -150,22 +150,22 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for attendance, user in attendances | groupby('1.id') %}
+                            {% for user_data in users_with_last_attendance %}
                             <tr>
                                 <td>
                                     <i class="fas fa-user-circle"></i>
-                                    {{ user.display_name }}
+                                    {{ user_data.user.display_name }}
                                 </td>
-                                <td>{{ user.email or 'なし' }}</td>
+                                <td>{{ user_data.user.email or 'なし' }}</td>
                                 <td>
-                                    <code>{{ user.slack_user_id }}</code>
+                                    <code>{{ user_data.user.slack_user_id }}</code>
                                 </td>
-                                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>{{ user_data.user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
-                                    {% if attendance %}
-                                    {{ attendance[0][0].timestamp.strftime('%Y-%m-%d %H:%M') }}
-                                    <span class="badge bg-{{ 'success' if attendance[0][0].type == '出勤' else 'info' }}">
-                                        {{ attendance[0][0].type }}
+                                    {% if user_data.last_attendance %}
+                                    {{ user_data.last_attendance.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                                    <span class="badge bg-{{ 'success' if user_data.last_attendance.type == '出勤' else 'info' }}">
+                                        {{ user_data.last_attendance.type }}
                                     </span>
                                     {% else %}
                                     <span class="text-muted">なし</span>

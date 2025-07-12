@@ -622,6 +622,18 @@ def admin():
         # 全ユーザーの出退勤記録を取得
         attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
         
+        # 全ユーザーの情報を取得（ユーザー一覧表示用）
+        users = User.query.all()
+        
+        # 各ユーザーの最新の出退勤記録を取得
+        users_with_last_attendance = []
+        for u in users:
+            last_attendance = Attendance.query.filter_by(user_id=u.id).order_by(Attendance.timestamp.desc()).first()
+            users_with_last_attendance.append({
+                'user': u,
+                'last_attendance': last_attendance
+            })
+        
         # 全体の統計情報を計算（エラーハンドリング強化）
         try:
             statistics_data = calculate_work_hours_statistics()
@@ -631,6 +643,7 @@ def admin():
         
         return render_template('admin.html', 
                              attendances=attendances,
+                             users_with_last_attendance=users_with_last_attendance,
                              statistics=statistics_data,
                              admin_user_id=admin_user_id)
     except Exception as e:
@@ -655,6 +668,12 @@ def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+
+# Favicon エンドポイント（404エラー対策）
+@app.route('/favicon.ico')
+def favicon():
+    """Faviconエンドポイント（404エラー対策）"""
+    return '', 204
 
 # データベース初期化コマンド
 @app.cli.command()
