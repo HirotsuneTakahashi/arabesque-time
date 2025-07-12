@@ -1,8 +1,8 @@
 import os
 import multiprocessing
 
-# Basic configuration
-bind = f"0.0.0.0:{os.environ.get('PORT', 5000)}"
+# Basic configuration（Render最適化）
+bind = f"0.0.0.0:{os.environ.get('PORT', 10000)}"  # Renderのデフォルトポート10000を使用
 workers = min(2, multiprocessing.cpu_count())  # ワーカー数を調整（Renderに最適化）
 worker_class = "sync"
 worker_connections = 1000
@@ -33,7 +33,6 @@ limit_request_field_size = 8190
 
 # Render最適化設定
 max_worker_connections = 1000
-worker_tmp_dir = "/dev/shm"
 forwarded_allow_ips = "*"  # Renderプロキシからの接続を許可
 
 # Application

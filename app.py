@@ -44,7 +44,9 @@ app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-for-developme
 
 # セッション設定（持続性を改善）
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)  # セッションを30日間保持
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'  # 本番環境でのみHTTPS必須
+# Renderの環境を検出してHTTPS設定を最適化
+is_render_env = os.environ.get('RENDER') == 'true' or os.environ.get('RENDER_SERVICE_ID') is not None
+app.config['SESSION_COOKIE_SECURE'] = is_render_env  # Render環境でのみHTTPS必須
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # JavaScriptからアクセス不可
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF保護
 
@@ -691,4 +693,5 @@ if __name__ != '__main__':
 if __name__ == '__main__':
     # 開発環境での直接実行
     create_app()
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    port = int(os.environ.get('PORT', 5000))  # PORT環境変数を使用
+    app.run(debug=True, host='0.0.0.0', port=port) 
