@@ -13,6 +13,10 @@ import requests
 import logging
 import statistics
 from collections import defaultdict
+import pytz
+
+# 日本時間のタイムゾーン定義
+JST_TZ = pytz.timezone('Asia/Tokyo')
 
 # ログ設定の改善
 logging.basicConfig(level=logging.INFO)
@@ -79,6 +83,16 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # データベースの初期化
 db.init_app(app)
 
+# カスタムフィルタを追加（UTC時間を日本時間に変換）
+@app.template_filter('jst')
+def jst_filter(utc_datetime):
+    """UTC時間を日本時間に変換するフィルタ"""
+    if utc_datetime is None:
+        return None
+    if utc_datetime.tzinfo is None:
+        utc_datetime = utc_datetime.replace(tzinfo=timezone.utc)
+    return utc_datetime.astimezone(JST_TZ)
+
 # Slack Bolt の自動OAuth設定を無効にするために環境変数を一時的に削除
 slack_client_id = os.environ.get('SLACK_CLIENT_ID')
 slack_client_secret = os.environ.get('SLACK_CLIENT_SECRET')
@@ -131,8 +145,9 @@ def handle_checkin(message, say):
         db.session.add(attendance)
         db.session.commit()
         
-        # 返信メッセージを送信
-        say(f"出勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        # 返信メッセージを送信（日本時間で表示）
+        jst_timestamp = attendance.timestamp.astimezone(JST_TZ)
+        say(f"出勤打刻を受け付けました！ {jst_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Checkin recorded for user: {user_id}")
         
     except Exception as e:
@@ -163,8 +178,9 @@ def handle_checkout(message, say):
         db.session.add(attendance)
         db.session.commit()
         
-        # 返信メッセージを送信
-        say(f"退勤打刻を受け付けました！ {attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        # 返信メッセージを送信（日本時間で表示）
+        jst_timestamp = attendance.timestamp.astimezone(JST_TZ)
+        say(f"退勤打刻を受け付けました！ {jst_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Checkout recorded for user: {user_id}")
         
     except Exception as e:
@@ -336,6 +352,53 @@ def calculate_work_hours_statistics(user_id=None):
             'total_hours': 0
         }
 
+def get_currently_working_members():
+    """
+    現在出勤中のメンバーを取得する関数
+    """
+    try:
+        # 今日の日付を取得（日本時間）
+        today_jst = datetime.now(JST_TZ).date()
+        start_jst = JST_TZ.localize(datetime.combine(today_jst, datetime.min.time()))
+        
+        # UTC時間に変換
+        start_datetime = start_jst.astimezone(timezone.utc)
+        
+        # 今日の出退勤記録を取得
+        attendances = Attendance.query.filter(
+            Attendance.timestamp >= start_datetime
+        ).order_by(Attendance.timestamp.desc()).all()
+        
+        # ユーザーごとの最新の出退勤状況を追跡
+        user_status = {}
+        
+        for attendance in attendances:
+            user_id = attendance.user_id
+            if user_id not in user_status:
+                user_status[user_id] = {
+                    'last_type': attendance.type,
+                    'timestamp': attendance.timestamp,
+                    'user': attendance.user
+                }
+        
+        # 現在出勤中のメンバーを抽出
+        currently_working = []
+        for user_id, status in user_status.items():
+            if status['last_type'] == '出勤':
+                currently_working.append({
+                    'user': status['user'],
+                    'checkin_time': status['timestamp']
+                })
+        
+        # 出勤時刻順にソート
+        currently_working.sort(key=lambda x: x['checkin_time'])
+        
+        return currently_working
+    
+    except Exception as e:
+        logger.error(f"Error getting currently working members: {e}")
+        return []
+
 # Webアプリケーションのルート
 @app.route('/')
 def index():
@@ -354,11 +417,16 @@ def index():
         end_date = request.args.get('end_date')
         
         if start_date and end_date:
-            # 期間指定がある場合
+            # 期間指定がある場合（日本時間での指定をUTC時間に変換）
             try:
-                start_datetime = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-                end_datetime = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
-                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                # 日本時間で指定された日付をUTC時間に変換
+                start_jst = JST_TZ.localize(datetime.fromisoformat(start_date))
+                end_jst = JST_TZ.localize(datetime.fromisoformat(end_date))
+                end_jst = end_jst.replace(hour=23, minute=59, second=59)
+                
+                # UTC時間に変換
+                start_datetime = start_jst.astimezone(timezone.utc)
+                end_datetime = end_jst.astimezone(timezone.utc)
                 
                 # 指定期間内の出退勤記録を取得
                 attendances = Attendance.query.filter(
@@ -367,17 +435,21 @@ def index():
                     Attendance.timestamp <= end_datetime
                 ).order_by(Attendance.timestamp.desc()).all()
                 
-                formatted_start_date = start_datetime.strftime('%Y-%m-%d')
-                formatted_end_date = end_datetime.strftime('%Y-%m-%d')
+                formatted_start_date = start_jst.strftime('%Y-%m-%d')
+                formatted_end_date = end_jst.strftime('%Y-%m-%d')
                 
             except ValueError:
                 flash('日付の形式が正しくありません。', 'error')
                 return redirect(url_for('index'))
         else:
-            # デフォルト：今日の記録を表示
-            today = datetime.now(timezone.utc).date()
-            start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
-            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+            # デフォルト：今日の記録を表示（日本時間の今日）
+            today_jst = datetime.now(JST_TZ).date()
+            start_jst = JST_TZ.localize(datetime.combine(today_jst, datetime.min.time()))
+            end_jst = JST_TZ.localize(datetime.combine(today_jst, datetime.max.time()))
+            
+            # UTC時間に変換
+            start_datetime = start_jst.astimezone(timezone.utc)
+            end_datetime = end_jst.astimezone(timezone.utc)
             
             # 今日の出退勤記録を取得
             attendances = Attendance.query.filter(
@@ -386,8 +458,8 @@ def index():
                 Attendance.timestamp <= end_datetime
             ).order_by(Attendance.timestamp.desc()).all()
             
-            formatted_start_date = today.strftime('%Y-%m-%d')
-            formatted_end_date = today.strftime('%Y-%m-%d')
+            formatted_start_date = today_jst.strftime('%Y-%m-%d')
+            formatted_end_date = today_jst.strftime('%Y-%m-%d')
         
         # 管理者権限チェック用
         admin_user_id = os.environ.get('ADMIN_USER_ID')
@@ -405,12 +477,20 @@ def index():
             logger.error(f"Error calculating overall statistics: {e}")
             overall_statistics = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
 
+        # 現在出勤中のメンバーを取得
+        try:
+            currently_working = get_currently_working_members()
+        except Exception as e:
+            logger.error(f"Error getting currently working members: {e}")
+            currently_working = []
+
         return render_template('index.html', 
                              user=user, 
                              attendances=attendances, 
                              admin_user_id=admin_user_id,
                              personal_statistics=personal_statistics,
                              overall_statistics=overall_statistics,
+                             currently_working=currently_working,
                              start_date=formatted_start_date,
                              end_date=formatted_end_date)
     except Exception as e:
@@ -567,7 +647,10 @@ def add_attendance():
             return jsonify({'error': '種別は「出勤」または「退勤」である必要があります'}), 400
         
         try:
-            timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+            # 日本時間で入力された時間をUTC時間に変換
+            jst_timestamp = datetime.fromisoformat(data['timestamp'])
+            jst_timezone_aware = JST_TZ.localize(jst_timestamp)
+            timestamp = jst_timezone_aware.astimezone(timezone.utc)
         except ValueError:
             return jsonify({'error': '日時の形式が正しくありません'}), 400
         
@@ -608,7 +691,10 @@ def update_attendance(id):
         
         if 'timestamp' in data:
             try:
-                attendance.timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+                # 日本時間で入力された時間をUTC時間に変換
+                jst_timestamp = datetime.fromisoformat(data['timestamp'])
+                jst_timezone_aware = JST_TZ.localize(jst_timestamp)
+                attendance.timestamp = jst_timezone_aware.astimezone(timezone.utc)
             except ValueError:
                 return jsonify({'error': '日時の形式が正しくありません'}), 400
         
@@ -658,8 +744,19 @@ def admin():
             flash('管理者権限が必要です。', 'error')
             return redirect(url_for('index'))
         
-        # 全ユーザーの出退勤記録を取得
-        attendances = db.session.query(Attendance, User).join(User).order_by(Attendance.timestamp.desc()).all()
+        # 今日の全ユーザーの出退勤記録を取得（日本時間）
+        today_jst = datetime.now(JST_TZ).date()
+        start_jst = JST_TZ.localize(datetime.combine(today_jst, datetime.min.time()))
+        end_jst = JST_TZ.localize(datetime.combine(today_jst, datetime.max.time()))
+        
+        # UTC時間に変換
+        start_datetime = start_jst.astimezone(timezone.utc)
+        end_datetime = end_jst.astimezone(timezone.utc)
+        
+        attendances = db.session.query(Attendance, User).join(User).filter(
+            Attendance.timestamp >= start_datetime,
+            Attendance.timestamp <= end_datetime
+        ).order_by(Attendance.timestamp.desc()).all()
         
         # 全ユーザーの情報を取得（ユーザー一覧表示用）
         users = User.query.all()
@@ -717,16 +814,25 @@ def admin_user_detail(user_id):
         
         if start_date and end_date:
             try:
-                start_datetime = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-                end_datetime = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
-                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                # 日本時間で指定された日付をUTC時間に変換
+                start_jst = JST_TZ.localize(datetime.fromisoformat(start_date))
+                end_jst = JST_TZ.localize(datetime.fromisoformat(end_date))
+                end_jst = end_jst.replace(hour=23, minute=59, second=59)
+                
+                # UTC時間に変換
+                start_datetime = start_jst.astimezone(timezone.utc)
+                end_datetime = end_jst.astimezone(timezone.utc)
             except ValueError:
                 flash('日付の形式が正しくありません。', 'error')
                 return redirect(url_for('admin_user_detail', user_id=user_id))
         else:
-            # デフォルト：過去30日間
-            end_datetime = datetime.now(timezone.utc)
-            start_datetime = end_datetime - timedelta(days=30)
+            # デフォルト：過去30日間（日本時間基準）
+            end_jst = datetime.now(JST_TZ)
+            start_jst = end_jst - timedelta(days=30)
+            
+            # UTC時間に変換
+            end_datetime = end_jst.astimezone(timezone.utc)
+            start_datetime = start_jst.astimezone(timezone.utc)
         
         # 指定期間内のユーザーの出退勤記録を取得
         attendances = Attendance.query.filter(
@@ -742,9 +848,13 @@ def admin_user_detail(user_id):
             logger.error(f"Error calculating user statistics: {e}")
             user_statistics = {'average_hours': 0, 'median_hours': 0, 'total_hours': 0, 'total_weeks': 0}
         
-        # 期間指定のフォーマット
-        formatted_start_date = start_datetime.strftime('%Y-%m-%d')
-        formatted_end_date = end_datetime.strftime('%Y-%m-%d')
+        # 期間指定のフォーマット（日本時間で表示）
+        if start_date and end_date:
+            formatted_start_date = start_jst.strftime('%Y-%m-%d')
+            formatted_end_date = end_jst.strftime('%Y-%m-%d')
+        else:
+            formatted_start_date = start_jst.strftime('%Y-%m-%d')
+            formatted_end_date = end_jst.strftime('%Y-%m-%d')
         
         return render_template('admin_user_detail.html', 
                              target_user=target_user,

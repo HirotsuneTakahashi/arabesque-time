@@ -59,50 +59,61 @@
 </div>
 
 <!-- 統計情報 -->
-<div class="row mb-4 statistics-row">
-    <div class="col-md-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週平均時間</h5>
-                        <h2>{{ user_statistics.average_hours }}h</h2>
-                        <small>個人平均</small>
-                    </div>
-                    <div>
-                        <i class="fas fa-chart-line fa-2x"></i>
-                    </div>
-                </div>
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">📊 {{ target_user.display_name }}さんの統計情報</h5>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-success text-white">
             <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">週中央値</h5>
-                        <h2>{{ user_statistics.median_hours }}h</h2>
-                        <small>個人中央値</small>
+                <div class="row">
+                    <div class="col-md-4 col-sm-6 mb-3">
+                        <div class="card bg-primary text-white h-100">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1 small">週平均時間</h6>
+                                        <h5 class="mb-0">{{ user_statistics.average_hours }}h</h5>
+                                        <small class="opacity-75">個人平均</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-chart-line"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <i class="fas fa-chart-bar fa-2x"></i>
+                    <div class="col-md-4 col-sm-6 mb-3">
+                        <div class="card bg-success text-white h-100">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1 small">週中央値</h6>
+                                        <h5 class="mb-0">{{ user_statistics.median_hours }}h</h5>
+                                        <small class="opacity-75">個人中央値</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-chart-bar"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h5 class="card-title">総時間</h5>
-                        <h2>{{ user_statistics.total_hours }}h</h2>
-                        <small>個人合計</small>
-                    </div>
-                    <div>
-                        <i class="fas fa-clock fa-2x"></i>
+                    <div class="col-md-4 col-sm-6 mb-3">
+                        <div class="card bg-info text-white h-100">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1 small">総時間</h6>
+                                        <h5 class="mb-0">{{ user_statistics.total_hours }}h</h5>
+                                        <small class="opacity-75">個人合計</small>
+                                    </div>
+                                    <div>
+                                        <i class="fas fa-clock"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -184,15 +195,15 @@
                         <tbody>
                             {% for attendance in attendances %}
                             <tr>
-                                <td>{{ attendance.timestamp.strftime('%Y-%m-%d') }}</td>
-                                <td>{{ attendance.timestamp.strftime('%H:%M:%S') }}</td>
+                                <td>{{ attendance.timestamp|jst|strftime('%Y-%m-%d') }}</td>
+                                <td>{{ attendance.timestamp|jst|strftime('%H:%M:%S') }}</td>
                                 <td>
                                     <span class="badge bg-{{ 'success' if attendance.type == '出勤' else 'info' }}">
                                         <i class="fas fa-{{ 'sun' if attendance.type == '出勤' else 'moon' }}"></i>
                                         {{ attendance.type }}
                                     </span>
                                 </td>
-                                <td>{{ attendance.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>{{ attendance.updated_at|jst|strftime('%Y-%m-%d %H:%M') }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
