@@ -93,6 +93,14 @@ def jst_filter(utc_datetime):
         utc_datetime = utc_datetime.replace(tzinfo=timezone.utc)
     return utc_datetime.astimezone(JST_TZ)
 
+# カスタムフィルタを追加（strftimeフィルター）
+@app.template_filter('strftime')
+def strftime_filter(datetime_obj, format_str):
+    """datetimeオブジェクトをフォーマットするフィルタ"""
+    if datetime_obj is None:
+        return None
+    return datetime_obj.strftime(format_str)
+
 # Slack Bolt の自動OAuth設定を無効にするために環境変数を一時的に削除
 slack_client_id = os.environ.get('SLACK_CLIENT_ID')
 slack_client_secret = os.environ.get('SLACK_CLIENT_SECRET')
