@@ -32,7 +32,9 @@
                                            name="monthly_revenue" pattern="[0-9,]+" 
                                            placeholder="例: 1,000,000" required>
                                 </div>
-                                <small class="form-text text-muted">労働時間比率に基づいて配分計算を行います</small>
+                                <small class="form-text text-muted">
+                                    配分は全期間の労働時間比率で計算し、時給は今月の労働時間で算出されます
+                                </small>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -175,8 +177,9 @@
                     <div class="col-md-4">
                         <div class="card bg-warning text-dark">
                             <div class="card-body text-center">
-                                <h4>¥{{ "{:,}".format((calculated_data.total_revenue / calculated_data.total_work_hours)|round|int) if calculated_data.total_work_hours > 0 else 0 }}</h4>
-                                <small>時給（平均）</small>
+                                {% set total_monthly_hours = calculated_data.distributions|sum(attribute='monthly_hours') %}
+                                <h4>¥{{ "{:,}".format((calculated_data.total_revenue / total_monthly_hours)|round|int) if total_monthly_hours > 0 else 0 }}</h4>
+                                <small>時給（今月平均）</small>
                             </div>
                         </div>
                     </div>
@@ -189,7 +192,8 @@
                         <thead class="table-success">
                             <tr>
                                 <th>ユーザー名</th>
-                                <th>労働時間</th>
+                                <th>全期間労働時間</th>
+                                <th>今月労働時間</th>
                                 <th>比率</th>
                                 <th>配分額</th>
                                 <th>時給</th>
@@ -204,15 +208,26 @@
                                 </td>
                                 <td>{{ dist.total_hours }}h</td>
                                 <td>
+                                    {% if dist.monthly_hours > 0 %}
+                                        <strong>{{ dist.monthly_hours }}h</strong>
+                                    {% else %}
+                                        <span class="text-muted">0h</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     <span class="badge bg-primary">{{ dist.work_ratio }}%</span>
                                 </td>
                                 <td>
                                     <strong class="text-success">¥{{ "{:,}".format(dist.allocated_amount|int) }}</strong>
                                 </td>
                                 <td>
-                                    <span class="text-muted">
-                                        ¥{{ "{:,}".format((dist.allocated_amount / dist.total_hours)|round|int) if dist.total_hours > 0 else 0 }}
-                                    </span>
+                                    {% if dist.monthly_hours > 0 %}
+                                        <span class="text-info">
+                                            ¥{{ "{:,}".format((dist.allocated_amount / dist.monthly_hours)|round|int) }}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">今月作業なし</span>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}

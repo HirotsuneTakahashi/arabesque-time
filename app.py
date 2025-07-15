@@ -404,15 +404,83 @@ def get_all_users_work_hours():
         logger.error(f"Error getting all users work hours: {e}")
         return []
 
-def calculate_revenue_distribution(monthly_revenue):
-    """月収益に基づいて労働時間比率で配分を計算"""
+def get_monthly_work_hours():
+    """今月の全ユーザーの労働時間を取得"""
     try:
-        user_work_data = get_all_users_work_hours()
+        # 今月の開始日と終了日を取得（日本時間）
+        now_jst = datetime.now(JST_TZ)
+        start_of_month_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month, 1))
         
-        # 総労働時間を計算
-        total_work_hours = sum(data['total_hours'] for data in user_work_data if data['total_hours'] > 0)
+        # 来月の最初の日を計算
+        if now_jst.month == 12:
+            next_month_jst = JST_TZ.localize(datetime(now_jst.year + 1, 1, 1))
+        else:
+            next_month_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month + 1, 1))
         
-        if total_work_hours == 0:
+        # UTC時間に変換
+        start_datetime = start_of_month_jst.astimezone(timezone.utc)
+        end_datetime = next_month_jst.astimezone(timezone.utc)
+        
+        users = User.query.all()
+        monthly_work_data = []
+        
+        for user in users:
+            # 今月の出退勤記録を取得
+            attendances = Attendance.query.filter(
+                Attendance.user_id == user.id,
+                Attendance.timestamp >= start_datetime,
+                Attendance.timestamp < end_datetime
+            ).order_by(Attendance.timestamp).all()
+            
+            if not attendances:
+                monthly_work_data.append({
+                    'user': user,
+                    'monthly_hours': 0
+                })
+                continue
+            
+            # 出勤と退勤をペアにして今月の労働時間を計算
+            checkin_records = [r for r in attendances if r.type == '出勤']
+            checkout_records = [r for r in attendances if r.type == '退勤']
+            
+            monthly_hours = 0
+            for checkin in checkin_records:
+                # 同じ日で最も近い退勤記録を探す
+                same_day_checkouts = [
+                    c for c in checkout_records 
+                    if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
+                ]
+                if same_day_checkouts:
+                    checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
+                    hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
+                    monthly_hours += hours
+            
+            monthly_work_data.append({
+                'user': user,
+                'monthly_hours': round(monthly_hours, 2)
+            })
+        
+        return monthly_work_data
+    
+    except Exception as e:
+        logger.error(f"Error getting monthly work hours: {e}")
+        return []
+
+def calculate_revenue_distribution(monthly_revenue):
+    """月収益に基づいて労働時間比率で配分を計算（全期間労働時間ベース、時給は今月労働時間ベース）"""
+    try:
+        # 全期間の労働時間データを取得（配分計算用）
+        all_time_work_data = get_all_users_work_hours()
+        # 今月の労働時間データを取得（時給計算用）
+        monthly_work_data = get_monthly_work_hours()
+        
+        # 今月の労働時間をユーザーIDでマッピング
+        monthly_hours_map = {data['user'].id: data['monthly_hours'] for data in monthly_work_data}
+        
+        # 全期間の総労働時間を計算（配分用）
+        total_all_time_hours = sum(data['total_hours'] for data in all_time_work_data if data['total_hours'] > 0)
+        
+        if total_all_time_hours == 0:
             return {
                 'total_revenue': monthly_revenue,
                 'total_work_hours': 0,
@@ -421,20 +489,26 @@ def calculate_revenue_distribution(monthly_revenue):
         
         # 各ユーザーへの配分を計算
         distributions = []
-        for data in user_work_data:
+        for data in all_time_work_data:
             if data['total_hours'] > 0:
-                work_ratio = data['total_hours'] / total_work_hours
+                # 全期間労働時間に基づく配分率
+                work_ratio = data['total_hours'] / total_all_time_hours
                 allocated_amount = monthly_revenue * work_ratio
+                
+                # 今月の労働時間を取得
+                monthly_hours = monthly_hours_map.get(data['user'].id, 0)
+                
                 distributions.append({
                     'user': data['user'],
-                    'total_hours': data['total_hours'],
+                    'total_hours': data['total_hours'],  # 全期間労働時間（配分用）
+                    'monthly_hours': monthly_hours,      # 今月労働時間（時給計算用）
                     'work_ratio': round(work_ratio * 100, 2),  # パーセンテージ
                     'allocated_amount': round(allocated_amount, 0)  # 整数に丸める
                 })
         
         return {
             'total_revenue': monthly_revenue,
-            'total_work_hours': round(total_work_hours, 2),
+            'total_work_hours': round(total_all_time_hours, 2),  # 全期間総労働時間
             'distributions': distributions
         }
     
