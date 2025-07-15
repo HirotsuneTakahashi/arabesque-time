@@ -28,9 +28,9 @@
                                 <label for="monthly_revenue" class="form-label">今月の収益（円）</label>
                                 <div class="input-group">
                                     <span class="input-group-text">¥</span>
-                                    <input type="number" class="form-control" id="monthly_revenue" 
-                                           name="monthly_revenue" min="0" step="1000" 
-                                           placeholder="例: 1000000" required>
+                                    <input type="text" class="form-control" id="monthly_revenue" 
+                                           name="monthly_revenue" pattern="[0-9,]+" 
+                                           placeholder="例: 1,000,000" required>
                                 </div>
                                 <small class="form-text text-muted">労働時間比率に基づいて配分計算を行います</small>
                             </div>
@@ -231,18 +231,81 @@
 {% block scripts %}
 <script>
 $(document).ready(function() {
-    // 数値入力フィールドの3桁区切り表示
-    $('#monthly_revenue').on('input', function() {
-        let value = $(this).val().replace(/,/g, '');
-        if (value) {
-            $(this).val(parseInt(value).toLocaleString());
+    // 収益入力フィールドのリアルタイム3桁区切り表示と数値制限
+    $('#monthly_revenue').on('input', function(e) {
+        let input = $(this);
+        let value = input.val();
+        
+        // 数字とカンマ以外を除去
+        value = value.replace(/[^\d,]/g, '');
+        
+        // 既存のカンマを除去
+        let numericValue = value.replace(/,/g, '');
+        
+        // 空文字でない場合のみフォーマット
+        if (numericValue) {
+            // 数値に変換してからカンマ区切りフォーマット
+            let formattedValue = parseInt(numericValue).toLocaleString();
+            input.val(formattedValue);
+        } else {
+            input.val('');
         }
     });
     
-    // フォーム送信時にカンマを除去
-    $('form').on('submit', function() {
+    // キーボード入力制限（数字、Backspace、Delete、Arrow keys、Tab のみ許可）
+    $('#monthly_revenue').on('keydown', function(e) {
+        // 許可するキーコード
+        const allowedKeys = [
+            8,   // Backspace
+            9,   // Tab
+            37,  // Left Arrow
+            38,  // Up Arrow
+            39,  // Right Arrow
+            40,  // Down Arrow
+            46,  // Delete
+            35,  // End
+            36   // Home
+        ];
+        
+        // 数字キー（0-9）
+        const isNumber = (e.keyCode >= 48 && e.keyCode <= 57) || (e.keyCode >= 96 && e.keyCode <= 105);
+        
+        // Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+        const isCtrlKey = e.ctrlKey && [65, 67, 86, 88].includes(e.keyCode);
+        
+        if (!isNumber && !allowedKeys.includes(e.keyCode) && !isCtrlKey) {
+            e.preventDefault();
+        }
+    });
+    
+    // ペースト時の処理
+    $('#monthly_revenue').on('paste', function(e) {
+        e.preventDefault();
+        let pasteData = (e.originalEvent || e).clipboardData.getData('text/plain');
+        
+        // 数字のみ抽出
+        let numericData = pasteData.replace(/[^\d]/g, '');
+        
+        if (numericData) {
+            let formattedValue = parseInt(numericData).toLocaleString();
+            $(this).val(formattedValue);
+        }
+    });
+    
+    // フォーム送信時にカンマを除去して数値検証
+    $('form').on('submit', function(e) {
         let revenueInput = $('#monthly_revenue');
         let value = revenueInput.val().replace(/,/g, '');
+        
+        // 空文字または0の場合はエラー
+        if (!value || parseInt(value) <= 0) {
+            e.preventDefault();
+            alert('正の収益額を入力してください。');
+            revenueInput.focus();
+            return false;
+        }
+        
+        // カンマを除去した数値をセット
         revenueInput.val(value);
     });
     
