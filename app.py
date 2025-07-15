@@ -360,6 +360,92 @@ def calculate_work_hours_statistics(user_id=None):
             'total_hours': 0
         }
 
+def get_all_users_work_hours():
+    """全ユーザーの総労働時間を取得"""
+    try:
+        users = User.query.all()
+        user_work_data = []
+        
+        for user in users:
+            # 各ユーザーの出退勤記録を取得
+            attendances = Attendance.query.filter_by(user_id=user.id).order_by(Attendance.timestamp).all()
+            
+            if not attendances:
+                user_work_data.append({
+                    'user': user,
+                    'total_hours': 0
+                })
+                continue
+            
+            # 出勤と退勤をペアにして総労働時間を計算
+            checkin_records = [r for r in attendances if r.type == '出勤']
+            checkout_records = [r for r in attendances if r.type == '退勤']
+            
+            total_hours = 0
+            for checkin in checkin_records:
+                # 同じ日で最も近い退勤記録を探す
+                same_day_checkouts = [
+                    c for c in checkout_records 
+                    if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
+                ]
+                if same_day_checkouts:
+                    checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
+                    hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
+                    total_hours += hours
+            
+            user_work_data.append({
+                'user': user,
+                'total_hours': round(total_hours, 2)
+            })
+        
+        return sorted(user_work_data, key=lambda x: x['total_hours'], reverse=True)
+    
+    except Exception as e:
+        logger.error(f"Error getting all users work hours: {e}")
+        return []
+
+def calculate_revenue_distribution(monthly_revenue):
+    """月収益に基づいて労働時間比率で配分を計算"""
+    try:
+        user_work_data = get_all_users_work_hours()
+        
+        # 総労働時間を計算
+        total_work_hours = sum(data['total_hours'] for data in user_work_data if data['total_hours'] > 0)
+        
+        if total_work_hours == 0:
+            return {
+                'total_revenue': monthly_revenue,
+                'total_work_hours': 0,
+                'distributions': []
+            }
+        
+        # 各ユーザーへの配分を計算
+        distributions = []
+        for data in user_work_data:
+            if data['total_hours'] > 0:
+                work_ratio = data['total_hours'] / total_work_hours
+                allocated_amount = monthly_revenue * work_ratio
+                distributions.append({
+                    'user': data['user'],
+                    'total_hours': data['total_hours'],
+                    'work_ratio': round(work_ratio * 100, 2),  # パーセンテージ
+                    'allocated_amount': round(allocated_amount, 0)  # 整数に丸める
+                })
+        
+        return {
+            'total_revenue': monthly_revenue,
+            'total_work_hours': round(total_work_hours, 2),
+            'distributions': distributions
+        }
+    
+    except Exception as e:
+        logger.error(f"Error calculating revenue distribution: {e}")
+        return {
+            'total_revenue': monthly_revenue,
+            'total_work_hours': 0,
+            'distributions': []
+        }
+
 def get_currently_working_members():
     """
     現在出勤中のメンバーを取得する関数
@@ -873,6 +959,46 @@ def admin_user_detail(user_id):
                              admin_user_id=admin_user_id)
     except Exception as e:
         logger.error(f"Error in admin_user_detail route: {e}")
+        flash('データの取得中にエラーが発生しました。', 'error')
+        return redirect(url_for('admin'))
+
+@app.route('/admin/accounting', methods=['GET', 'POST'])
+def admin_accounting():
+    """管理者用決算ページ"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        # 管理者チェック
+        user = User.query.get(session['user_id'])
+        admin_user_id = os.environ.get('ADMIN_USER_ID')
+        
+        if not user or user.slack_user_id != admin_user_id:
+            flash('管理者権限が必要です。', 'error')
+            return redirect(url_for('index'))
+        
+        # POSTリクエストの場合（収益計算実行）
+        calculated_data = None
+        if request.method == 'POST':
+            try:
+                monthly_revenue = float(request.form.get('monthly_revenue', 0))
+                if monthly_revenue <= 0:
+                    flash('正の収益額を入力してください。', 'error')
+                else:
+                    calculated_data = calculate_revenue_distribution(monthly_revenue)
+                    flash('収益配分を計算しました。', 'success')
+            except ValueError:
+                flash('正しい数値を入力してください。', 'error')
+        
+        # 全ユーザーの総労働時間データを取得
+        user_work_data = get_all_users_work_hours()
+        
+        return render_template('admin_accounting.html',
+                             user_work_data=user_work_data,
+                             calculated_data=calculated_data,
+                             admin_user_id=admin_user_id)
+    except Exception as e:
+        logger.error(f"Error in admin_accounting route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')
         return redirect(url_for('admin'))
 
