@@ -274,6 +274,42 @@ def get_or_create_user(slack_user_id):
         logger.error(f"Error in get_or_create_user: {e}")
         return None
 
+def calculate_work_hours_from_records(records):
+    """
+    出退勤記録から労働時間を計算（日跨ぎ対応）
+    
+    Args:
+        records: 出退勤記録のリスト（時系列順にソート済み）
+    
+    Returns:
+        float: 総労働時間（時間単位）
+    """
+    try:
+        if not records:
+            return 0
+        
+        # 記録を時系列順にソート
+        sorted_records = sorted(records, key=lambda x: x.timestamp)
+        
+        total_hours = 0
+        current_checkin = None
+        
+        for record in sorted_records:
+            if record.type == '出勤':
+                # 既に出勤中の場合は、前の出勤記録を更新
+                current_checkin = record
+            elif record.type == '退勤' and current_checkin is not None:
+                # 出勤中の場合、労働時間を計算
+                hours = (record.timestamp - current_checkin.timestamp).total_seconds() / 3600
+                total_hours += hours
+                current_checkin = None  # 退勤したのでリセット
+        
+        return round(total_hours, 2)
+    
+    except Exception as e:
+        logger.error(f"Error calculating work hours from records: {e}")
+        return 0
+
 def calculate_work_hours_statistics(user_id=None):
     """活動時間の統計を計算（週単位）- 最適化版"""
     try:
@@ -311,24 +347,9 @@ def calculate_work_hours_statistics(user_id=None):
                 week_start = record.timestamp.date() - timedelta(days=record.timestamp.weekday())
                 weekly_records[week_start].append(record)
             
-            # 各週の作業時間を計算（最適化：並列処理準備）
+            # 各週の作業時間を計算（日跨ぎ対応）
             for week_start, week_records in weekly_records.items():
-                # 出勤と退勤をペアにして作業時間を計算
-                checkin_records = [r for r in week_records if r.type == '出勤']
-                checkout_records = [r for r in week_records if r.type == '退勤']
-                
-                week_hours = 0
-                for checkin in checkin_records:
-                    # 同じ日で最も近い退勤記録を探す
-                    same_day_checkouts = [
-                        c for c in checkout_records 
-                        if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
-                    ]
-                    if same_day_checkouts:
-                        checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
-                        hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
-                        week_hours += hours
-                
+                week_hours = calculate_work_hours_from_records(week_records)
                 if week_hours > 0:
                     weekly_hours.append(week_hours)
         
@@ -377,21 +398,8 @@ def get_all_users_work_hours():
                 })
                 continue
             
-            # 出勤と退勤をペアにして総労働時間を計算
-            checkin_records = [r for r in attendances if r.type == '出勤']
-            checkout_records = [r for r in attendances if r.type == '退勤']
-            
-            total_hours = 0
-            for checkin in checkin_records:
-                # 同じ日で最も近い退勤記録を探す
-                same_day_checkouts = [
-                    c for c in checkout_records 
-                    if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
-                ]
-                if same_day_checkouts:
-                    checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
-                    hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
-                    total_hours += hours
+            # 出退勤記録から総労働時間を計算（日跨ぎ対応）
+            total_hours = calculate_work_hours_from_records(attendances)
             
             user_work_data.append({
                 'user': user,
@@ -439,21 +447,8 @@ def get_monthly_work_hours():
                 })
                 continue
             
-            # 出勤と退勤をペアにして今月の労働時間を計算
-            checkin_records = [r for r in attendances if r.type == '出勤']
-            checkout_records = [r for r in attendances if r.type == '退勤']
-            
-            monthly_hours = 0
-            for checkin in checkin_records:
-                # 同じ日で最も近い退勤記録を探す
-                same_day_checkouts = [
-                    c for c in checkout_records 
-                    if c.timestamp.date() == checkin.timestamp.date() and c.timestamp > checkin.timestamp
-                ]
-                if same_day_checkouts:
-                    checkout = min(same_day_checkouts, key=lambda x: x.timestamp)
-                    hours = (checkout.timestamp - checkin.timestamp).total_seconds() / 3600
-                    monthly_hours += hours
+            # 出退勤記録から今月の労働時間を計算（日跨ぎ対応）
+            monthly_hours = calculate_work_hours_from_records(attendances)
             
             monthly_work_data.append({
                 'user': user,
