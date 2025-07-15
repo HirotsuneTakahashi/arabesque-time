@@ -412,107 +412,170 @@ def get_all_users_work_hours():
         logger.error(f"Error getting all users work hours: {e}")
         return []
 
-def get_monthly_work_hours():
-    """今月の全ユーザーの労働時間を取得"""
+def get_period_work_hours(start_date=None, end_date=None):
+    """指定期間の全ユーザーの労働時間を取得"""
     try:
-        # 今月の開始日と終了日を取得（日本時間）
-        now_jst = datetime.now(JST_TZ)
-        start_of_month_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month, 1))
-        
-        # 来月の最初の日を計算
-        if now_jst.month == 12:
-            next_month_jst = JST_TZ.localize(datetime(now_jst.year + 1, 1, 1))
+        if start_date and end_date:
+            # 指定された期間を使用（日本時間）
+            start_jst = JST_TZ.localize(datetime.fromisoformat(start_date))
+            end_jst = JST_TZ.localize(datetime.fromisoformat(end_date))
+            end_jst = end_jst.replace(hour=23, minute=59, second=59)
         else:
-            next_month_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month + 1, 1))
+            # デフォルト：今月の開始日と終了日を取得（日本時間）
+            now_jst = datetime.now(JST_TZ)
+            start_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month, 1))
+            
+            # 今月末日を計算
+            if now_jst.month == 12:
+                next_month_jst = JST_TZ.localize(datetime(now_jst.year + 1, 1, 1))
+            else:
+                next_month_jst = JST_TZ.localize(datetime(now_jst.year, now_jst.month + 1, 1))
+            
+            end_jst = next_month_jst - timedelta(seconds=1)
         
         # UTC時間に変換
-        start_datetime = start_of_month_jst.astimezone(timezone.utc)
-        end_datetime = next_month_jst.astimezone(timezone.utc)
+        start_datetime = start_jst.astimezone(timezone.utc)
+        end_datetime = end_jst.astimezone(timezone.utc)
         
         users = User.query.all()
-        monthly_work_data = []
+        period_work_data = []
         
         for user in users:
-            # 今月の出退勤記録を取得
+            # 指定期間の出退勤記録を取得
             attendances = Attendance.query.filter(
                 Attendance.user_id == user.id,
                 Attendance.timestamp >= start_datetime,
-                Attendance.timestamp < end_datetime
+                Attendance.timestamp <= end_datetime
             ).order_by(Attendance.timestamp).all()
             
             if not attendances:
-                monthly_work_data.append({
+                period_work_data.append({
                     'user': user,
-                    'monthly_hours': 0
+                    'period_hours': 0
                 })
                 continue
             
-            # 出退勤記録から今月の労働時間を計算（日跨ぎ対応）
-            monthly_hours = calculate_work_hours_from_records(attendances)
+            # 出退勤記録から指定期間の労働時間を計算（日跨ぎ対応）
+            period_hours = calculate_work_hours_from_records(attendances)
             
-            monthly_work_data.append({
+            period_work_data.append({
                 'user': user,
-                'monthly_hours': round(monthly_hours, 2)
+                'period_hours': round(period_hours, 2)
             })
         
-        return monthly_work_data
+        return period_work_data
     
     except Exception as e:
-        logger.error(f"Error getting monthly work hours: {e}")
+        logger.error(f"Error getting period work hours: {e}")
         return []
 
-def calculate_revenue_distribution(monthly_revenue):
-    """月収益に基づいて労働時間比率で配分を計算（全期間労働時間ベース、時給は今月労働時間ベース）"""
+def get_cumulative_work_hours(end_date=None):
+    """指定日までの累積労働時間を取得（配分計算用）"""
     try:
-        # 全期間の労働時間データを取得（配分計算用）
-        all_time_work_data = get_all_users_work_hours()
-        # 今月の労働時間データを取得（時給計算用）
-        monthly_work_data = get_monthly_work_hours()
+        if end_date:
+            # 指定された日まで（日本時間）
+            end_jst = JST_TZ.localize(datetime.fromisoformat(end_date))
+            end_jst = end_jst.replace(hour=23, minute=59, second=59)
+            end_datetime = end_jst.astimezone(timezone.utc)
+        else:
+            # デフォルト：今日まで
+            end_datetime = datetime.now(timezone.utc)
         
-        # 今月の労働時間をユーザーIDでマッピング
-        monthly_hours_map = {data['user'].id: data['monthly_hours'] for data in monthly_work_data}
+        users = User.query.all()
+        cumulative_work_data = []
         
-        # 全期間の総労働時間を計算（配分用）
-        total_all_time_hours = sum(data['total_hours'] for data in all_time_work_data if data['total_hours'] > 0)
+        for user in users:
+            # 指定日までの全出退勤記録を取得
+            attendances = Attendance.query.filter(
+                Attendance.user_id == user.id,
+                Attendance.timestamp <= end_datetime
+            ).order_by(Attendance.timestamp).all()
+            
+            if not attendances:
+                cumulative_work_data.append({
+                    'user': user,
+                    'cumulative_hours': 0
+                })
+                continue
+            
+            # 出退勤記録から累積労働時間を計算（日跨ぎ対応）
+            cumulative_hours = calculate_work_hours_from_records(attendances)
+            
+            cumulative_work_data.append({
+                'user': user,
+                'cumulative_hours': round(cumulative_hours, 2)
+            })
         
-        if total_all_time_hours == 0:
+        return sorted(cumulative_work_data, key=lambda x: x['cumulative_hours'], reverse=True)
+    
+    except Exception as e:
+        logger.error(f"Error getting cumulative work hours: {e}")
+        return []
+
+def calculate_revenue_distribution(revenue, start_date=None, end_date=None):
+    """収益に基づいて労働時間比率で配分を計算（累積労働時間ベース、時給は対象期間労働時間ベース）"""
+    try:
+        # 累積労働時間データを取得（配分計算用）
+        cumulative_work_data = get_cumulative_work_hours(end_date)
+        # 対象期間の労働時間データを取得（時給計算用）
+        period_work_data = get_period_work_hours(start_date, end_date)
+        
+        # 対象期間の労働時間をユーザーIDでマッピング
+        period_hours_map = {data['user'].id: data['period_hours'] for data in period_work_data}
+        
+        # 累積総労働時間を計算（配分用）
+        total_cumulative_hours = sum(data['cumulative_hours'] for data in cumulative_work_data if data['cumulative_hours'] > 0)
+        
+        if total_cumulative_hours == 0:
             return {
-                'total_revenue': monthly_revenue,
-                'total_work_hours': 0,
-                'distributions': []
+                'total_revenue': revenue,
+                'total_cumulative_hours': 0,
+                'distributions': [],
+                'period_info': {
+                    'start_date': start_date,
+                    'end_date': end_date
+                }
             }
         
         # 各ユーザーへの配分を計算
         distributions = []
-        for data in all_time_work_data:
-            if data['total_hours'] > 0:
-                # 全期間労働時間に基づく配分率
-                work_ratio = data['total_hours'] / total_all_time_hours
-                allocated_amount = monthly_revenue * work_ratio
+        for data in cumulative_work_data:
+            if data['cumulative_hours'] > 0:
+                # 累積労働時間に基づく配分率
+                work_ratio = data['cumulative_hours'] / total_cumulative_hours
+                allocated_amount = revenue * work_ratio
                 
-                # 今月の労働時間を取得
-                monthly_hours = monthly_hours_map.get(data['user'].id, 0)
+                # 対象期間の労働時間を取得
+                period_hours = period_hours_map.get(data['user'].id, 0)
                 
                 distributions.append({
                     'user': data['user'],
-                    'total_hours': data['total_hours'],  # 全期間労働時間（配分用）
-                    'monthly_hours': monthly_hours,      # 今月労働時間（時給計算用）
-                    'work_ratio': round(work_ratio * 100, 2),  # パーセンテージ
+                    'cumulative_hours': data['cumulative_hours'],  # 累積労働時間（配分用）
+                    'period_hours': period_hours,                  # 対象期間労働時間（時給計算用）
+                    'work_ratio': round(work_ratio * 100, 2),      # パーセンテージ
                     'allocated_amount': round(allocated_amount, 0)  # 整数に丸める
                 })
         
         return {
-            'total_revenue': monthly_revenue,
-            'total_work_hours': round(total_all_time_hours, 2),  # 全期間総労働時間
-            'distributions': distributions
+            'total_revenue': revenue,
+            'total_cumulative_hours': round(total_cumulative_hours, 2),  # 累積総労働時間
+            'distributions': distributions,
+            'period_info': {
+                'start_date': start_date,
+                'end_date': end_date
+            }
         }
     
     except Exception as e:
         logger.error(f"Error calculating revenue distribution: {e}")
         return {
-            'total_revenue': monthly_revenue,
-            'total_work_hours': 0,
-            'distributions': []
+            'total_revenue': revenue,
+            'total_cumulative_hours': 0,
+            'distributions': [],
+            'period_info': {
+                'start_date': start_date,
+                'end_date': end_date
+            }
         }
 
 def get_currently_working_members():
@@ -1046,26 +1109,45 @@ def admin_accounting():
             flash('管理者権限が必要です。', 'error')
             return redirect(url_for('index'))
         
+        # 期間パラメータを取得
+        start_date = request.form.get('start_date') or request.args.get('start_date')
+        end_date = request.form.get('end_date') or request.args.get('end_date')
+        
+        # デフォルト期間設定（今月）
+        if not start_date or not end_date:
+            now_jst = datetime.now(JST_TZ)
+            start_date = f"{now_jst.year}-{now_jst.month:02d}-01"
+            
+            # 今月末日を計算
+            if now_jst.month == 12:
+                next_month = datetime(now_jst.year + 1, 1, 1)
+            else:
+                next_month = datetime(now_jst.year, now_jst.month + 1, 1)
+            last_day = (next_month - timedelta(days=1)).day
+            end_date = f"{now_jst.year}-{now_jst.month:02d}-{last_day:02d}"
+        
         # POSTリクエストの場合（収益計算実行）
         calculated_data = None
         if request.method == 'POST':
             try:
-                monthly_revenue = float(request.form.get('monthly_revenue', 0))
-                if monthly_revenue <= 0:
+                revenue = float(request.form.get('revenue', 0))
+                if revenue <= 0:
                     flash('正の収益額を入力してください。', 'error')
                 else:
-                    calculated_data = calculate_revenue_distribution(monthly_revenue)
+                    calculated_data = calculate_revenue_distribution(revenue, start_date, end_date)
                     flash('収益配分を計算しました。', 'success')
             except ValueError:
                 flash('正しい数値を入力してください。', 'error')
         
-        # 全ユーザーの総労働時間データを取得
-        user_work_data = get_all_users_work_hours()
+        # 累積労働時間データを取得（表示用）
+        user_work_data = get_cumulative_work_hours(end_date)
         
         return render_template('admin_accounting.html',
                              user_work_data=user_work_data,
                              calculated_data=calculated_data,
-                             admin_user_id=admin_user_id)
+                             admin_user_id=admin_user_id,
+                             start_date=start_date,
+                             end_date=end_date)
     except Exception as e:
         logger.error(f"Error in admin_accounting route: {e}")
         flash('データの取得中にエラーが発生しました。', 'error')

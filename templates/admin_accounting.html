@@ -11,41 +11,52 @@
     </ol>
 </nav>
 
-<!-- 収益入力フォーム -->
+<!-- 期間・収益入力フォーム -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header bg-success text-white">
                 <h4 class="card-title mb-0">
-                    <i class="fas fa-calculator"></i> 月収益計算
+                    <i class="fas fa-calculator"></i> 決算計算
                 </h4>
             </div>
             <div class="card-body">
                 <form method="post" action="{{ url_for('admin_accounting') }}">
-                    <div class="row">
-                        <div class="col-md-6">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
                             <div class="form-group">
-                                <label for="monthly_revenue" class="form-label">今月の収益（円）</label>
-                                <div class="input-group">
-                                    <span class="input-group-text">¥</span>
-                                    <input type="text" class="form-control" id="monthly_revenue" 
-                                           name="monthly_revenue" pattern="[0-9,]+" 
-                                           placeholder="例: 1,000,000" required>
-                                </div>
-                                <small class="form-text text-muted">
-                                    配分は全期間の労働時間比率で計算し、時給は今月の労働時間で算出されます
-                                </small>
+                                <label for="start_date" class="form-label">対象期間 開始日</label>
+                                <input type="date" class="form-control" id="start_date" 
+                                       name="start_date" value="{{ start_date }}" required>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="form-group">
-                                <label>&nbsp;</label>
-                                <div>
-                                    <button type="submit" class="btn btn-success btn-lg">
-                                        <i class="fas fa-chart-pie"></i> 配分を計算
-                                    </button>
+                                <label for="end_date" class="form-label">対象期間 終了日</label>
+                                <input type="date" class="form-control" id="end_date" 
+                                       name="end_date" value="{{ end_date }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="revenue" class="form-label">対象期間の収益（円）</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">¥</span>
+                                    <input type="text" class="form-control" id="revenue" 
+                                           name="revenue" pattern="[0-9,]+" 
+                                           placeholder="例: 1,000,000" required>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-chart-pie"></i> 配分を計算
+                            </button>
+                            <small class="form-text text-muted d-block mt-2">
+                                配分は{{ end_date }}までの累積労働時間比率で計算し、時給は対象期間の労働時間で算出されます
+                            </small>
                         </div>
                     </div>
                 </form>
@@ -60,7 +71,7 @@
         <div class="card">
             <div class="card-header bg-primary text-white">
                 <h5 class="card-title mb-0">
-                    <i class="fas fa-clock"></i> 参加者別総労働時間
+                    <i class="fas fa-clock"></i> 参加者別累積労働時間 ({{ end_date }}まで)
                 </h5>
             </div>
             <div class="card-body">
@@ -77,10 +88,10 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% set total_hours = user_work_data|sum(attribute='total_hours') %}
+                            {% set total_hours = user_work_data|sum(attribute='cumulative_hours') %}
                             {% for data in user_work_data %}
-                            {% if data.total_hours > 0 %}
-                            {% set ratio = (data.total_hours / total_hours * 100) if total_hours > 0 else 0 %}
+                            {% if data.cumulative_hours > 0 %}
+                            {% set ratio = (data.cumulative_hours / total_hours * 100) if total_hours > 0 else 0 %}
                             <tr>
                                 <td>
                                     {% if loop.index == 1 %}
@@ -107,7 +118,7 @@
                                     </a>
                                 </td>
                                 <td>
-                                    <strong>{{ data.total_hours }}h</strong>
+                                    <strong>{{ data.cumulative_hours }}h</strong>
                                 </td>
                                 <td>
                                     <span class="badge bg-info">{{ "%.1f"|format(ratio) }}%</span>
@@ -130,8 +141,8 @@
                 <div class="mt-3">
                     <p class="text-muted">
                         <i class="fas fa-info-circle"></i> 
-                        総労働時間: <strong>{{ total_hours }}時間</strong> | 
-                        参加者数: <strong>{{ user_work_data|selectattr('total_hours', 'gt', 0)|list|length }}名</strong>
+                        累積総労働時間: <strong>{{ total_hours }}時間</strong> | 
+                        参加者数: <strong>{{ user_work_data|selectattr('cumulative_hours', 'gt', 0)|list|length }}名</strong>
                     </p>
                 </div>
                 {% else %}
@@ -169,17 +180,18 @@
                     <div class="col-md-4">
                         <div class="card bg-primary text-white">
                             <div class="card-body text-center">
-                                <h4>{{ calculated_data.total_work_hours }}h</h4>
-                                <small>総労働時間</small>
+                                {% set total_period_hours = calculated_data.distributions|sum(attribute='period_hours') %}
+                                <h4>{{ total_period_hours }}h</h4>
+                                <small>対象期間の総労働時間</small>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="card bg-warning text-dark">
                             <div class="card-body text-center">
-                                {% set total_monthly_hours = calculated_data.distributions|sum(attribute='monthly_hours') %}
-                                <h4>¥{{ "{:,}".format((calculated_data.total_revenue / total_monthly_hours)|round|int) if total_monthly_hours > 0 else 0 }}</h4>
-                                <small>時給（今月平均）</small>
+                                {% set total_period_hours = calculated_data.distributions|sum(attribute='period_hours') %}
+                                <h4>¥{{ "{:,}".format((calculated_data.total_revenue / total_period_hours)|round|int) if total_period_hours > 0 else 0 }}</h4>
+                                <small>時給（対象期間平均）</small>
                             </div>
                         </div>
                     </div>
@@ -192,11 +204,11 @@
                         <thead class="table-success">
                             <tr>
                                 <th>ユーザー名</th>
-                                <th>全期間労働時間</th>
-                                <th>今月労働時間</th>
+                                <th>累積労働時間</th>
+                                <th>対象期間労働時間</th>
                                 <th>比率</th>
                                 <th>配分額</th>
-                                <th>時給</th>
+                                <th>対象期間時給</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -206,10 +218,10 @@
                                     <i class="fas fa-user-circle"></i>
                                     {{ dist.user.display_name }}
                                 </td>
-                                <td>{{ dist.total_hours }}h</td>
+                                <td>{{ dist.cumulative_hours }}h</td>
                                 <td>
-                                    {% if dist.monthly_hours > 0 %}
-                                        <strong>{{ dist.monthly_hours }}h</strong>
+                                    {% if dist.period_hours > 0 %}
+                                        <strong>{{ dist.period_hours }}h</strong>
                                     {% else %}
                                         <span class="text-muted">0h</span>
                                     {% endif %}
@@ -221,12 +233,12 @@
                                     <strong class="text-success">¥{{ "{:,}".format(dist.allocated_amount|int) }}</strong>
                                 </td>
                                 <td>
-                                    {% if dist.monthly_hours > 0 %}
+                                    {% if dist.period_hours > 0 %}
                                         <span class="text-info">
-                                            ¥{{ "{:,}".format((dist.allocated_amount / dist.monthly_hours)|round|int) }}
+                                            ¥{{ "{:,}".format((dist.allocated_amount / dist.period_hours)|round|int) }}
                                         </span>
                                     {% else %}
-                                        <span class="text-muted">今月作業なし</span>
+                                        <span class="text-muted">対象期間作業なし</span>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -247,7 +259,7 @@
 <script>
 $(document).ready(function() {
     // 収益入力フィールドのリアルタイム3桁区切り表示と数値制限
-    $('#monthly_revenue').on('input', function(e) {
+    $('#revenue').on('input', function(e) {
         let input = $(this);
         let value = input.val();
         
@@ -268,7 +280,7 @@ $(document).ready(function() {
     });
     
     // キーボード入力制限（数字、Backspace、Delete、Arrow keys、Tab のみ許可）
-    $('#monthly_revenue').on('keydown', function(e) {
+    $('#revenue').on('keydown', function(e) {
         // 許可するキーコード
         const allowedKeys = [
             8,   // Backspace
@@ -294,7 +306,7 @@ $(document).ready(function() {
     });
     
     // ペースト時の処理
-    $('#monthly_revenue').on('paste', function(e) {
+    $('#revenue').on('paste', function(e) {
         e.preventDefault();
         let pasteData = (e.originalEvent || e).clipboardData.getData('text/plain');
         
@@ -307,9 +319,20 @@ $(document).ready(function() {
         }
     });
     
+    // 期間バリデーション
+    $('#start_date, #end_date').on('change', function() {
+        const startDate = $('#start_date').val();
+        const endDate = $('#end_date').val();
+        
+        if (startDate && endDate && startDate > endDate) {
+            alert('開始日は終了日より前である必要があります。');
+            $(this).val('');
+        }
+    });
+    
     // フォーム送信時にカンマを除去して数値検証
     $('form').on('submit', function(e) {
-        let revenueInput = $('#monthly_revenue');
+        let revenueInput = $('#revenue');
         let value = revenueInput.val().replace(/,/g, '');
         
         // 空文字または0の場合はエラー
